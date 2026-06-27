@@ -22,6 +22,7 @@
 from .. import register_submodules
 
 submodule_names = (
+    "animation_workflow",
     "applyscale",
     "clearinverse",
     "panels",

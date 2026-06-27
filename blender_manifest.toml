@@ -1,0 +1,29 @@
+schema_version = "1.0.0"
+
+id = "io_object_mu_blender51"
+version = "0.9.4"
+name = "Mu model format (KSP)"
+tagline = "Import and export Kerbal Space Program Mu models in Blender 5.1"
+maintainer = "Bill Currie; Blender 5.1 port contributors"
+type = "add-on"
+
+website = "https://github.com/taniwha/io_object_mu"
+tags = ["Import-Export"]
+
+blender_version_min = "5.1.0"
+
+license = [
+  "SPDX:GPL-2.0-or-later",
+]
+
+[permissions]
+files = "Import and export KSP model, craft, and config files"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+  ".git/",
+  ".gitignore",
+  "*.zip",
+]

@@ -22,6 +22,7 @@
 from .. import register_submodules
 
 from .model import Model, compile_model, instantiate_model
+from .model import realize_model_instance
 
 submodule_names = (
 )

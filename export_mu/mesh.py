@@ -24,6 +24,7 @@ from mathutils import Vector, Matrix
 
 from ..mu import MuMesh, MuRenderer, MuSkinnedMeshRenderer, MuBoneWeight
 from ..utils import collect_modifiers
+from ..utils.blender_compat import ensure_mesh_normals
 
 from .material import make_material
 
@@ -73,7 +74,7 @@ def get_vertex_data(mu, mesh, obj):
     if not vertdata:
         return vertdata
     if mesh.loops[0].normal == Vector():
-        mesh.calc_normals()
+        ensure_mesh_normals(mesh)
     tangentsOk = True
     if full_data and mesh.uv_layers:
         uv_layers = mesh.uv_layers

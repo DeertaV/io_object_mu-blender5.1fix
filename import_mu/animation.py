@@ -19,10 +19,12 @@
 
 # <pep8 compliant>
 
+import re
 import bpy
 from mathutils import Vector, Quaternion
 from math import pi
 from .light import light_power
+from ..utils.blender_compat import ensure_action_fcurve
 
 #mess with the heads of 6.28... fans :P
 tau = pi / 180
@@ -53,14 +55,54 @@ vector_map = {
     "x": 0, "y": 1, "z": 2, "w":3,  # shader props not read as quaternions
 }
 
+SUFFIX_RE = re.compile(r"( \(\d+\)|\.\d{3})$")
+
+def debug_print(message):
+    if bpy.app.debug:
+        print(message)
+
 def property_index(properties, prop):
     for i, p in enumerate(properties):
         if p.name == prop:
             return i
     return None
 
-def shader_property(obj, prop):
-    prop = prop.split(".")
+def strip_name_suffix(name):
+    return SUFFIX_RE.sub("", name)
+
+def normalize_path_suffixes(path):
+    return "/".join(strip_name_suffix(part) for part in path.split("/"))
+
+def path_in_subtree(candidate, root):
+    return not root or candidate == root or candidate.startswith(root + "/")
+
+def resolve_object_path(mu, root_path, object_path):
+    if object_path in mu.object_paths:
+        return object_path
+
+    normalized_path = normalize_path_suffixes(object_path)
+    if normalized_path in mu.object_paths:
+        return normalized_path
+
+    matches = [
+        path for path in mu.object_paths
+        if (path_in_subtree(path, root_path)
+            and normalize_path_suffixes(path) == normalized_path)
+    ]
+    if len(matches) == 1:
+        return matches[0]
+
+    target_name = strip_name_suffix(object_path.rsplit("/", 1)[-1])
+    matches = [
+        path for path in mu.object_paths
+        if (path_in_subtree(path, root_path)
+            and strip_name_suffix(path.rsplit("/", 1)[-1]) == target_name)
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+def shader_property_on_mesh(obj, prop):
     if not obj or type(obj.data) != bpy.types.Mesh:
         return None
     if not obj.data.materials:
@@ -69,24 +111,47 @@ def shader_property(obj, prop):
         mumat = mat.mumatprop
         for subpath in ["color", "vector", "float2", "float3", "texture"]:
             propset = getattr(mumat, subpath)
-            if prop[0] in propset.properties:
-                if subpath == "texture":
-                    print("animated texture properties not yet supported")
-                    print(prop)
+            propIndex = property_index(propset.properties, prop[0])
+            if propIndex is None:
+                continue
+            if subpath == "texture":
+                print("animated texture properties not yet supported")
+                print(prop)
+                return None
+            if subpath[:5] == "float":
+                rnaIndex = 0
+            else:
+                if len(prop) < 2 or prop[1] not in vector_map:
                     return None
-                if subpath[:5] == "float":
-                    rnaIndex = 0
-                else:
-                    rnaIndex = vector_map[prop[1]]
-                propIndex = property_index(propset.properties, prop[0])
-                path = "mumatprop.%s.properties[%d].value" % (subpath, propIndex)
-                return mat, path, rnaIndex
+                rnaIndex = vector_map[prop[1]]
+            path = "mumatprop.%s.properties[%d].value" % (subpath, propIndex)
+            return mat, path, rnaIndex
     return None
 
-def create_fcurve(action, curve, propmap):
+def iter_child_objects(obj):
+    for child in obj.children:
+        yield child
+        yield from iter_child_objects(child)
+
+def shader_property(obj, prop):
+    prop = prop.split(".")
+    sp = shader_property_on_mesh(obj, prop)
+    if sp:
+        return sp
+
+    matches = []
+    for child in iter_child_objects(obj):
+        sp = shader_property_on_mesh(child, prop)
+        if sp:
+            matches.append(sp)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+def create_fcurve(action, datablock, curve, propmap):
     dp, ind, mult = propmap
     fps = bpy.context.scene.render.fps
-    fc = action.fcurves.new(data_path = dp, index = ind)
+    fc = ensure_action_fcurve(action, datablock, dp, ind)
     fc.keyframe_points.add(len(curve.keys))
     for i, key in enumerate(curve.keys):
         x,y = key.time * fps + bpy.context.scene.frame_start, key.value * mult
@@ -107,23 +172,38 @@ def create_fcurve(action, curve, propmap):
         fc.keyframe_points[i].handle_right = x + dx, y + dy
     return fc
 
+def create_enabled_fcurves(action, obj, curve):
+    fps = bpy.context.scene.render.fps
+    fcurves = []
+    for data_path in ("hide_viewport", "hide_render"):
+        fc = ensure_action_fcurve(action, obj, data_path, None)
+        fc.keyframe_points.add(len(curve.keys))
+        for i, key in enumerate(curve.keys):
+            x = key.time * fps + bpy.context.scene.frame_start
+            y = 0.0 if key.value > 0.5 else 1.0
+            fc.keyframe_points[i].co = x, y
+            fc.keyframe_points[i].interpolation = 'CONSTANT'
+        fcurves.append(fc)
+    return fcurves
+
 def create_action(mu, path, clip):
     #print(clip.name)
     actions = {}
     bones = set()
     for curve in clip.curves:
         if not curve.keys:
-            print("Curve has no keys")
             continue
         if not curve.path:
             mu_path = path
         else:
             mu_path = "/".join([path, curve.path])
-        if (mu_path not in mu.object_paths):
+        resolved_path = resolve_object_path(mu, path, mu_path)
+        if not resolved_path:
             if mu_path not in mu.bad_paths:
                 mu.bad_paths.add(mu_path)
                 print("Unknown path: %s" % (mu_path))
             continue
+        mu_path = resolved_path
         muobj = mu.object_paths[mu_path]
         dppref = ""
         if hasattr(muobj, "bone"):
@@ -137,6 +217,14 @@ def create_action(mu, path, clip):
 
         if curve.property[:-2] == "localEulerAnglesRaw":
             obj.rotation_mode = 'YXZ'
+        if curve.property == "m_Enabled":
+            name = ".".join([obj.name, "visibility"])
+            actpath = "/".join([curve.path, name])
+            if actpath not in actions:
+                actions[actpath] = bpy.data.actions.new(name), obj
+            act, obj = actions[actpath]
+            create_enabled_fcurves(act, obj, curve)
+            continue
         if curve.property not in property_map:
             sp = shader_property(obj, curve.property)
             if not sp:
@@ -160,7 +248,7 @@ def create_action(mu, path, clip):
         if actpath not in actions:
             actions[actpath] = bpy.data.actions.new(name), obj
         act, obj = actions[actpath]
-        fcurve = create_fcurve(act, curve, fullpropmap)
+        fcurve = create_fcurve(act, obj, curve, fullpropmap)
         if hasattr(muobj, "bone"):
             if not hasattr(muobj, "fcurves"):
                 muobj.fcurves = {}
@@ -175,12 +263,12 @@ def create_action(mu, path, clip):
             location = muobj.fcurves["location"]
             lloc = Vector(muobj.transform.localPosition)
             if None in location:
-                print("Skipping incomplete location fcurve set")
+                debug_print("Skipping incomplete location fcurve set")
             elif ((len(location[0].keyframe_points)
                   != len(location[1].keyframe_points))
                   or (len(location[0].keyframe_points)
                       != len(location[2].keyframe_points))):
-                print("Skipping mismatched location fcurve set")
+                debug_print("Skipping mismatched location fcurve set")
             else:
                 for i in range(len(location[0].keyframe_points)):
                     def transformkey(kval):
@@ -197,14 +285,14 @@ def create_action(mu, path, clip):
             rotation = muobj.fcurves["rotation_quaternion"]
             lrot = Quaternion(muobj.transform.localRotation).inverted()
             if None in rotation:
-                print("Skipping incomplete rotation fcurve set")
+                debug_print("Skipping incomplete rotation fcurve set")
             elif ((len(rotation[0].keyframe_points)
                   != len(rotation[1].keyframe_points))
                   or (len(rotation[0].keyframe_points)
                       != len(rotation[2].keyframe_points))
                   or (len(rotation[0].keyframe_points)
                       != len(rotation[3].keyframe_points))):
-                print("Skipping mismatched rotation fcurve set")
+                debug_print("Skipping mismatched rotation fcurve set")
             else:
                 for i in range(len(rotation[0].keyframe_points)):
                     def rotkey(kval):

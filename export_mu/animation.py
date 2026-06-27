@@ -24,6 +24,7 @@ from mathutils import Vector, Quaternion
 
 from ..mu import MuAnimation, MuClip, MuCurve, MuKey
 from ..utils import strip_nnn
+from ..utils.blender_compat import iter_action_fcurves
 
 from .light import light_types, light_power
 
@@ -277,6 +278,28 @@ def transform_curves(muarm):
                         rotation[2].keys[i].tangent[j] = -tan.y
                         rotation[3].keys[i].tangent[j] = -tan.z
 
+def nla_track_loop(track):
+    try:
+        if track.get("ksp_loop", False):
+            return True
+    except (AttributeError, TypeError):
+        pass
+    if not hasattr(track, "strips"):
+        return False
+    for strip in track.strips:
+        try:
+            if strip.get("ksp_loop", False):
+                return True
+        except (AttributeError, TypeError):
+            pass
+        if strip.action:
+            try:
+                if strip.action.get("ksp_loop", False):
+                    return True
+            except (AttributeError, TypeError):
+                pass
+    return False
+
 def make_animations(mu, animations, anim_root):
     anim = MuAnimation()
     anim.clip = ""
@@ -288,16 +311,20 @@ def make_animations(mu, animations, anim_root):
         clip.name = clip_name
         clip.lbCenter = (0, 0, 0)
         clip.lbSize = (0, 0, 0)
-        clip.wrapMode = 0   #FIXME
+        clip.wrapMode = 2 if any(nla_track_loop(data[0])
+                                 for data in animations[clip_name]) else 0
         for data in animations[clip_name]:
             track, path, typ = data
             muobj = mu.object_paths[path]
             path = path[len(anim_root) + 1:]
+            slot_source = None
             if type(track) is bpy.types.Action:
                 action = track
             else:
-                action = track.strips[0].action
-            for curve in action.fcurves:
+                strip = track.strips[0]
+                action = strip.action
+                slot_source = strip
+            for curve in iter_action_fcurves(action, slot_source):
                 clip.curves.append(make_curve(mu, muobj, curve, path, typ))
             if hasattr(muobj, "animated_bones"):
                 transform_curves(muobj)
