@@ -21,28 +21,34 @@
 
 import bpy
 from .convex_hull import quickhull
+from ..utils.blender_compat import clear_to_mesh
 
 def quickhull_op(self, context):
     operator = self
     undo = bpy.context.preferences.edit.use_global_undo
     bpy.context.preferences.edit.use_global_undo = False
 
-    for obj in bpy.context.scene.objects:
-        if not obj.select_get():
-            continue
-        obj.select_set(False)
-        depsgraph = context.evaluated_depsgraph_get()
-        mesh = obj.evaluated_get(depsgraph).to_mesh()
-        if not mesh or not mesh.vertices:
-            continue
-        mesh = quickhull(mesh)
-        hullobj = bpy.data.objects.new("ConvexHull", mesh)
-        bpy.context.scene.collection.objects.link(hullobj)
-        hullobj.select_set(True)
-        hullobj.location = obj.location
-        bpy.context.view_layer.objects.active = hullobj
-
-    bpy.context.preferences.edit.use_global_undo = undo
+    try:
+        for obj in bpy.context.scene.objects:
+            if not obj.select_get():
+                continue
+            obj.select_set(False)
+            depsgraph = context.evaluated_depsgraph_get()
+            obj_eval = obj.evaluated_get(depsgraph)
+            mesh = obj_eval.to_mesh()
+            try:
+                if not mesh or not mesh.vertices:
+                    continue
+                mesh = quickhull(mesh)
+            finally:
+                clear_to_mesh(obj_eval, obj)
+            hullobj = bpy.data.objects.new("ConvexHull", mesh)
+            bpy.context.scene.collection.objects.link(hullobj)
+            hullobj.select_set(True)
+            hullobj.location = obj.location
+            bpy.context.view_layer.objects.active = hullobj
+    finally:
+        bpy.context.preferences.edit.use_global_undo = undo
     return {'FINISHED'}
 
 class KSPMU_OT_QuickHull(bpy.types.Operator):

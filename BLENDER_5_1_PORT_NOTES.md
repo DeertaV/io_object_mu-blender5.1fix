@@ -1,24 +1,58 @@
 # Blender 5.1 port notes
 
-This package is a best-effort compatibility refresh of the legacy `io_object_mu` add-on.
+This package is a Blender 5.1 compatibility refresh of the legacy
+`io_object_mu` add-on.
 
-## Changes made
+## Target
 
-- Updated `bl_info` metadata for Blender 5.1.
-- Added `utils/blender_compat.py` with compatibility helpers.
-- Replaced direct `mesh.use_auto_smooth = True` with a guarded compatibility call because `Mesh.use_auto_smooth` was removed in Blender 4.1+.
-- Fixed temporary mesh cleanup around `Object.to_mesh()` / `to_mesh_clear()` to work more reliably with evaluated objects.
-- Replaced direct `depsgraph.update()` usage with a view-layer update helper after modifier visibility changes.
+- Latest stable target checked from Blender's official download page:
+  Blender 5.1.2.
+- Package compatibility floor: Blender 5.1.0.
+- Local runtime used for regression in this workspace:
+  `D:\Blender\blender.exe`, Blender 5.1.0.
 
-## Files touched
+Blender 5.1.2 is a corrective release in the same 5.1 API line, so the add-on
+keeps a 5.1.0 minimum instead of needlessly rejecting 5.1.0 and 5.1.1 users.
 
-- `__init__.py`
-- `import_mu/mesh.py`
-- `collider/operators.py`
-- `export_mu/volume.py`
-- `utils/blender_compat.py` (new)
+## Compatibility fixes
 
-## Caveat
+- Added `utils/blender_compat.py` with shims for Blender API variants.
+- Replaced removed or changed mesh/bone/action APIs:
+  - custom normal setup no longer relies on `Mesh.use_auto_smooth`;
+  - export normal refresh no longer directly requires `Mesh.calc_normals`;
+  - edit bone scale inheritance handles Blender 5.1 `inherit_scale`;
+  - action f-curve creation handles Blender 5.1 layered actions.
+- Updated shader node compatibility:
+  - `ShaderNodeSeparateRGB` to `ShaderNodeSeparateColor`;
+  - `ShaderNodeCombineRGB` to `ShaderNodeCombineColor`;
+  - old RGB socket names to Blender 5.1 color socket names.
+- Added shader fallbacks for common imported shaders:
+  - `Standard`;
+  - `KSP/Particles/Additive`;
+  - `KSP/Particles/Alpha Blended`.
+- Fixed cfg/GameData import paths:
+  - ModuleManager cache parsing uses `ConfigNode` objects;
+  - malformed empty assignment lines like ` = =` are skipped;
+  - legacy `mesh = model.mu` cfg parts choose the cfg-declared mesh.
+- Updated craft import:
+  - default craft import realizes part collections into editable object trees;
+  - mesh, light, camera, armature, material, action, and NLA data are copied;
+  - armature modifier and constraint targets are remapped to the copied objects;
+  - the old lightweight collection-instance mode remains available through
+    `Use Collection Instances`.
+- Reduced normal import console noise while keeping true unknown path/property
+  diagnostics visible.
 
-This code was statically checked (`py_compile`) after the edits, but not fully runtime-tested inside a live Blender 5.1 session in this environment.
-You should still test import, export, collider generation, and volume export in Blender 5.1.
+## Tested scenarios
+
+- Blender add-on register/unregister.
+- Blender extension source and zip validation.
+- Direct `.mu` import for Squad static, skinned, animated, light, and engine
+  samples.
+- `.craft` import with ModuleManager-backed GameData.
+- Realized craft import with editable animated solar-panel objects.
+- MiniDrill armature/action/NLA import.
+- light_12 light object and light data animation import.
+- `liquidEngine24-77/model.mu` import/export size regression.
+- Default cube `.mu` export.
+- QuickHull operator smoke test.

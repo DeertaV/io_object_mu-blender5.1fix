@@ -35,6 +35,25 @@ typemap = {
 
 use_index = { None, "Vector", "Value", "Shader" }
 
+node_type_aliases = {
+    "ShaderNodeSeparateRGB": "ShaderNodeSeparateColor",
+    "ShaderNodeCombineRGB": "ShaderNodeCombineColor",
+}
+
+socket_aliases = {
+    "Image": "Color",
+    "RGB": "Color",
+    "R": "Red",
+    "G": "Green",
+    "B": "Blue",
+}
+
+shader_aliases = {
+    "Standard": "KSP/Bumped Specular",
+    "KSP/Particles/Additive": "KSP/Alpha/Translucent Additive",
+    "KSP/Particles/Alpha Blended": "KSP/Alpha/Translucent Additive",
+}
+
 
 def node_tree_add_input(node_tree, socket_type, name):
     if hasattr(node_tree, "interface") and node_tree.interface is not None:
@@ -87,7 +106,7 @@ def set_property(obj, prop, valstr):
             value = eval(valstr)
         if type(attr) == bpy_prop_array:
             if type(value) not in [list, tuple]:
-                print(f"WARNING: {prop} simple type for array property (old cfg?)")
+                # Older shader configs may use scalars for array defaults.
                 value = (value,) * len(attr)
         setattr(obj, prop, value)
     except Exception:
@@ -107,6 +126,9 @@ def find_socket(sockets, sock):
         return sockets[index]
     elif name in sockets:
         return sockets[name]
+    alias = socket_aliases.get(name)
+    if alias and alias in sockets:
+        return sockets[alias]
     return None
 
 def build_nodes(matname, node_tree, ntcfg):
@@ -139,6 +161,7 @@ def build_nodes(matname, node_tree, ntcfg):
     nodes = node_tree.nodes
     for n in ntcfg.GetNode("nodes").nodes:
         sntype, sndata, line = n.name, n, n.line
+        sntype = node_type_aliases.get(sntype, sntype)
         sn = nodes.new(sntype)
         for snvalue in sndata.values:
             a, v = snvalue.name, snvalue.value
@@ -233,8 +256,9 @@ def make_shader_tex_prop(mu, muprop, blendprop, context):
 
 def create_nodes(mat):
     shaderName = mat.mumatprop.shaderName
-    if shaderName in shader_configs:
-        cfg = shader_configs[shaderName]
+    shaderConfigName = shader_aliases.get(shaderName, shaderName)
+    if shaderConfigName in shader_configs:
+        cfg = shader_configs[shaderConfigName]
         for extra in cfg.GetNodes("node_tree"):
             ntname = extra.GetValue("name")
             if not ntname in bpy.data.node_groups:

@@ -27,7 +27,13 @@ from bpy.props import StringProperty, BoolProperty
 
 from . import colorpalettes
 
-package_name = __package__.split(".")[0]
+def addon_package_name():
+    parts = __package__.split(".")
+    if len(parts) >= 3 and parts[0] == "bl_ext":
+        return ".".join(parts[:3])
+    return parts[0]
+
+package_name = addon_package_name()
 
 def install_presets(dstsubdir, srcsubdir):
     presets=bpy.utils.script_paths()

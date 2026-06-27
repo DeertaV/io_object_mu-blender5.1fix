@@ -22,6 +22,7 @@
 import bpy
 from mathutils import Vector, Quaternion, Matrix
 from ..utils import create_data_object, translate, scale, rotate
+from ..utils.blender_compat import set_edit_bone_inherit_scale
 
 BONE_LENGTH = 0.1
 #matrix for converting between LHS and RHS (works either direction)
@@ -66,7 +67,7 @@ def create_bone(bone_obj, edit_bones):
     bone.use_inherit_rotation = True
     bone.use_envelope_multiply = False
     bone.use_deform = True
-    bone.use_inherit_scale = True
+    set_edit_bone_inherit_scale(bone, True)
     bone.use_local_location = False
     bone.use_relative_parent = False
     bone.use_cyclic_offset = False

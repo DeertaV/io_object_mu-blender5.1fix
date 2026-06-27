@@ -58,6 +58,12 @@ class ConfigNode:
                 break
             if script.token == "\xef\xbb\xbf":
                 continue
+            if script.token == '=':
+                # ModuleManager caches can contain malformed empty assignments
+                # such as " = ="; ignore the line instead of aborting import.
+                if script.tokenAvailable(False):
+                    script.getLine()
+                continue
             if script.token in (['{', '}', '='] if top else ['{', '=']):
                 cfg_error(script, "unexpected " + script.token)
             if script.token == '}':

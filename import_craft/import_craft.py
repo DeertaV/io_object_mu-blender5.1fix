@@ -20,13 +20,14 @@
 # <pep8 compliant>
 import bpy
 from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 
 from ..import_mu import MuImportError
 from ..cfgnode import ConfigNode, ConfigNodeError
 from ..cfgnode import parse_vector, parse_quaternion
 from ..preferences import Preferences
 from ..utils import util_collection
+from ..model import realize_model_instance
 
 from .gamedata import GameData, gamedata
 
@@ -38,7 +39,11 @@ def select_objects(obj):
     for o in obj.children:
         select_objects(o)
 
-def import_craft(filepath):
+def link_child_collection(parent, child):
+    if child.name not in parent.children:
+        parent.children.link(child)
+
+def import_craft(filepath, use_collection_instances=False):
     global gamedata
     if not gamedata:
         gamedata = GameData(Preferences().GameData)
@@ -51,7 +56,13 @@ def import_craft(filepath):
     if craft_name[:9] == "#autoLOC_" and craft_name in gamedata.localizations:
         craft_name = gamedata.localizations[craft_name].strip()
     vessel = bpy.data.collections.new(craft_name)
-    craft_collection().children.link(vessel)
+    if use_collection_instances:
+        craft_collection().children.link(vessel)
+    else:
+        link_child_collection(bpy.context.layer_collection.collection, vessel)
+        obj = bpy.data.objects.new(craft_name, None)
+        obj.location = bpy.context.scene.cursor.location
+        vessel.objects.link(obj)
     root_pos = None
     for p in craft.GetNodes("PART"):
         pname = p.GetValue("part").split("_")[0]
@@ -63,21 +74,26 @@ def import_craft(filepath):
         part.location = pos - root_pos
         part.rotation_mode = 'QUATERNION'
         part.rotation_quaternion = rot
-        vessel.objects.link(part)
-    obj = bpy.data.objects.new(craft_name, None)
-    obj.instance_type = 'COLLECTION'
-    obj.instance_collection = vessel
-    obj.location = bpy.context.scene.cursor.location
-    bpy.context.layer_collection.collection.objects.link(obj)
+        if use_collection_instances:
+            vessel.objects.link(part)
+        else:
+            realize_model_instance(part, vessel, obj)
+            bpy.data.objects.remove(part)
+    if use_collection_instances:
+        obj = bpy.data.objects.new(craft_name, None)
+        obj.instance_type = 'COLLECTION'
+        obj.instance_collection = vessel
+        obj.location = bpy.context.scene.cursor.location
+        bpy.context.layer_collection.collection.objects.link(obj)
     return obj
 
-def import_craft_op(self, context, filepath):
+def import_craft_op(self, context, filepath, use_collection_instances):
     operator = self
     undo = bpy.context.preferences.edit.use_global_undo
     bpy.context.preferences.edit.use_global_undo = False
 
     try:
-        obj = import_craft(filepath)
+        obj = import_craft(filepath, use_collection_instances)
     except MuImportError as e:
         operator.report({'ERROR'}, e.message)
         return {'CANCELLED'}
@@ -99,6 +115,10 @@ class KSPMU_OT_ImportCraft(bpy.types.Operator, ImportHelper):
 
     filename_ext = ".craft"
     filter_glob: StringProperty(default="*.craft", options={'HIDDEN'})
+    use_collection_instances: BoolProperty(
+        name="Use Collection Instances",
+        description="Import parts as lightweight collection instances instead of editable object hierarchies",
+        default=False)
 
     def execute(self, context):
         keywords = self.as_keywords (ignore=("filter_glob",
