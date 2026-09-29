@@ -16,6 +16,10 @@ keeps a 5.1.0 minimum instead of needlessly rejecting 5.1.0 and 5.1.1 users.
 
 ## Compatibility fixes
 
+- Version 0.10.5: craft import now skips missing MODEL subcomponents, skips
+  parts with no usable model, and records precise missing references and
+  expected file paths in a Blender Text report.
+
 - Added `utils/blender_compat.py` with shims for Blender API variants.
 - Replaced removed or changed mesh/bone/action APIs:
   - custom normal setup no longer relies on `Mesh.use_auto_smooth`;

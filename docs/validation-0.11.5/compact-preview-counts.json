@@ -1,0 +1,16 @@
+{
+  "mk1-3pod": {
+    "M1-3 Pod": 7,
+    "No Name": 4
+  },
+  "noseCone": {
+    "Aerodynamic NoseCone": 8
+  },
+  "solidBooster.v2": {
+    "SRB_O.001": 6,
+    "SRB_W.001": 6
+  },
+  "parachuteSingle": {
+    "assets": 8
+  }
+}

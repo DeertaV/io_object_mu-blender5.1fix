@@ -1,0 +1,80 @@
+{
+  "noseCone": {
+    "mean_absolute_difference": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_difference": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "solidBooster.v2": {
+    "mean_absolute_difference": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_difference": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "parachuteSingle": {
+    "mean_absolute_difference": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_difference": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  }
+}
