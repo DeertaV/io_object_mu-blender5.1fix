@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.6 — 2026-09-29
+- Resolve animation ownership to the nearest independent part/import placement anchor, with a nearest-raw-model fallback; do not redirect child model operations to an animated parent model.
+- Stop source-clip discovery at independent instance boundaries, including parented models/parts and compatibility with existing 0.11.x anchors.
+- Reject exact same-instance duplicate requests before displaying overlap choices; retain real target-channel conflict handling.
+- Add invoke/execute regressions for simultaneous object/bone/material/light playback, rename/save/reopen, and real same-model/different-model Craft instances in both modes.
+
 ## 0.11.5 — 2026-09-29
 - Reduce generated shader node clutter: remove identity operations, share UV mappings, group color/alpha and packed-normal calculations, and arrange nodes without overlaps.
 - Add opt-in arrange and simplify tools for existing imported materials. Simplification preserves the original Material ID, creates a fake-user backup, and supports undo/redo.

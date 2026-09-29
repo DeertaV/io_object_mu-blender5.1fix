@@ -17,6 +17,7 @@ The repository itself is the extension source root. Use the runner to load it un
 - `test_mod_lookup_blender.py`
 - `test_shader_evaluation_blender.py`
 - `test_preview_undo_blender.py`
+- `test_simultaneous_instances_blender.py`
 
 ## Real assets
 
@@ -36,4 +37,4 @@ ReStock / Kerbal Reusability Expansion assets: `test_imported_animation_blender.
 
 Additional real mod library: `test_mod_assets_blender.py` (not run successfully for 0.11.5 because its fixture library was unavailable).
 
-Output is written to `tests/artifacts/` or test-local `.blend` files and is ignored by Git. The full manual checklist is [docs/TEST_CHECKLIST.md](../docs/TEST_CHECKLIST.md). Published validation results are [docs/TEST_REPORT_0.11.5.md](../docs/TEST_REPORT_0.11.5.md).
+Output is written to `tests/artifacts/` or test-local `.blend` files and is ignored by Git. The full manual checklist is [docs/TEST_CHECKLIST.md](../docs/TEST_CHECKLIST.md). Published validation results are [docs/TEST_REPORT_0.11.6.md](../docs/TEST_REPORT_0.11.6.md).
