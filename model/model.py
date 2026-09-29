@@ -323,7 +323,7 @@ class Model:
                     continue
                 if g.get('ksp_model_stamp') and g.get('ksp_model_stamp') != model_stamp(source):
                     continue
-                if g.get('ksp_import_pipeline') != '0.11.5':
+                if g.get('ksp_import_pipeline') != '0.11.6':
                     continue
                 url = g.get('ksp_model_url', g.name[6:])
                 item = cls.__new__(cls)
@@ -338,7 +338,7 @@ class Model:
         source = os.path.abspath(path).replace('\\', '/') if path else ''
         cached = next((g for g in bpy.data.collections
                        if g.name.startswith('model:') and g.get('ksp_model_url', g.name[6:]) == url
-                       and g.get('ksp_import_pipeline') == '0.11.5'
+                       and g.get('ksp_import_pipeline') == '0.11.6'
                        and (not source or (model_source(g).casefold() == source.casefold()
                             and (not g.get('ksp_model_stamp') or g.get('ksp_model_stamp') == model_stamp(source))))), None)
         if cached:
@@ -359,7 +359,7 @@ class Model:
             model['ksp_model_source'] = source
             model['ksp_model_url'] = url
             model['ksp_model_stamp'] = model_stamp(source)
-            model['ksp_import_pipeline'] = '0.11.5'
+            model['ksp_import_pipeline'] = '0.11.6'
         self.model = model
     def instantiate(self, name, loc, rot, scale):
         return instantiate_model(self.model, name, loc, rot, scale)

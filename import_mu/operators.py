@@ -58,6 +58,7 @@ def import_mu_op(self, context, filepath, create_colliders, force_armature,
         anchor = bpy.data.objects.new(os.path.splitext(os.path.basename(filepath))[0] + "：导入定位", None)
         collection.objects.link(anchor)
         anchor["ksp_model_root"] = True
+        anchor["ksp_instance_root"] = True
         anchor["ksp_original_name"] = "ksp_import_anchor"
         anchor.ksp_assets.uid = uid()
         anchor.ksp_assets.source = filepath

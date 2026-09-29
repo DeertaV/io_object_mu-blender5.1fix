@@ -112,7 +112,27 @@ for instanced in (True, False):
                     assert constraint.target in nodes, 'Pose constraints must not target cached source rigs'
     for panel in (VIEW3D_PT_KSPImportedData, VIEW3D_PT_KSPAuxiliaryData):
         panel.draw(SimpleNamespace(layout=Layout()), bpy.context)
+    # Add the identical source clip to a second drill at exactly the same time,
+    # then add the different solar part. Existing coverage only inspected the
+    # untouched second part and never actually scheduled it through the UI.
+    previous_ids = {binding_target(e) for e in group.entries}
+    for next_part in (other, parts[2]):
+        next_part.ksp_assets.clip_choice = '0'
+        next_part.ksp_assets.insert_frame = 200
+        bpy.context.view_layer.objects.active = next_part
+        assert bpy.ops.object.ksp_imported_clip_add('EXEC_DEFAULT') == {'FINISHED'}
+        next_root = bpy.context.active_object
+        assert len(next_root.ksp_assets.scheduled) == 1
+        next_group = next_root.ksp_assets.scheduled[0]
+        targets = {binding_target(e) for e in next_group.entries}
+        assert not targets & previous_ids
+        previous_ids.update(targets)
+        assert not next_group.overrides
+        assert len(selected.ksp_assets.scheduled) == 1
+    # Removing one instance leaves all independently scheduled parts intact.
     remove_scheduled(selected, group.uid)
+    assert sum(len(p.ksp_assets.scheduled) for p in vessel.children
+               if p.get('ksp_part_root')) == 2
 
 # Cache recovery must use real collection IDs, not Collection custom properties.
 assert Model(None, 'Test/drill').model == db.models['Test/drill'].model

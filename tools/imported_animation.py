@@ -29,6 +29,16 @@ def selected_clip(root):
     return index, clips[index][1]
 
 
+def reject_duplicate(root, clip_index, clip, start, end, insert):
+    source_key = f"{clip_index}:{clip.uid}"
+    if any(g.source_key == source_key
+           and abs(g.source_start - start) < 0.0001
+           and abs(g.source_end - end) < 0.0001
+           and abs(g.start - insert) < 0.0001 for g in root.ksp_assets.scheduled):
+        raise ValueError(f"当前零件 {root.name} 的相同片段、区间和插入位置已存在")
+    return source_key
+
+
 def validate_range(clip, start, end):
     if not all(math.isfinite(x) for x in (start, end)):
         raise ValueError("帧区间必须为有限数值")
@@ -253,12 +263,7 @@ def add_clip(root, context, mode='CANCEL'):
     if not math.isfinite(insert):
         raise ValueError("插入帧必须为有限数值")
     validate_range(clip, source_start, source_end)
-    source_key = f"{clip_index}:{clip.uid}"
-    if any(g.source_key == source_key
-           and abs(g.source_start - source_start) < 0.0001
-           and abs(g.source_end - source_end) < 0.0001
-           and abs(g.start - insert) < 0.0001 for g in props.scheduled):
-        raise ValueError("相同片段、区间和插入位置已存在")
+    source_key = reject_duplicate(root, clip_index, clip, source_start, source_end, insert)
     factor = context.scene.render.fps / context.scene.render.fps_base / clip.fps
     end = insert + (source_end - source_start) * factor
     conflicts = clip_conflicts(clip, insert, end)
@@ -373,9 +378,11 @@ class KSP_OT_ImportedClipAdd(bpy.types.Operator):
             self.report({'WARNING'}, "请选择导入模型或零件；旧模型请先迁移绑定")
             return {'CANCELLED'}
         try:
-            _, clip = selected_clip(root)
+            clip_index, clip = selected_clip(root)
             props = root.ksp_assets
             validate_range(clip, props.source_start, props.source_end)
+            reject_duplicate(root, clip_index, clip, props.source_start,
+                             props.source_end, props.insert_frame)
             factor = context.scene.render.fps / context.scene.render.fps_base / clip.fps
             found = clip_conflicts(clip, props.insert_frame,
                                    props.insert_frame + (props.source_end - props.source_start) * factor)

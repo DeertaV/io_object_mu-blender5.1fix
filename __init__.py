@@ -25,7 +25,7 @@ bl_info = {
     "blender": (5, 1, 0),
     "location": "File > Import-Export",
     "description": "Import-Export KSP Mu format files. (.mu)",
-    "version": (0, 11, 5),
+    "version": (0, 11, 6),
     "warning": "Unity runtime components are metadata only; see KSP import reports",
     "wiki_url": "",
     "tracker_url": "",

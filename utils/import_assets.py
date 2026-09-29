@@ -158,13 +158,22 @@ def finalize_assets(mu, root, filepath):
     root["ksp_import_report"] = report.name
 
 
+def instance_root(obj):
+    """A part or placement anchor owns animation independently of its parent."""
+    return bool(obj and (obj.get("ksp_part_root") or obj.get("ksp_instance_root")
+                        or obj.get("ksp_original_name") == "ksp_import_anchor"))
+
+
 def model_root(obj):
     candidate = None
     while obj:
-        if obj.get("ksp_part_root"):
+        if instance_root(obj):
             return obj
         if obj.get("ksp_model_root") or (hasattr(obj, "ksp_assets") and obj.ksp_assets.uid):
-            candidate = obj
+            # Keep the nearest raw model when no part/placement anchor exists.
+            # The highest ancestor may be a separately imported, animated model.
+            if candidate is None:
+                candidate = obj
         obj = obj.parent
     return candidate
 
@@ -195,8 +204,15 @@ def collect_clips(root):
     return [(anchor, clip) for anchor, clip, _ in clip_entries(root)]
 
 
-def clip_entries(root, stack=(), trail=""):
+def clip_entries(root, stack=(), trail="", owner=None):
     if not root:
+        return
+    if owner is None:
+        owner = root
+    elif instance_root(root):
+        # Parenting independent parts/models together does not merge resources.
+        return
+    elif owner.ksp_assets.clips and root.get("ksp_model_root") and root.ksp_assets.clips:
         return
     path = trail + '/' + root.get('ksp_original_name', root.name)
     for clip in root.ksp_assets.clips:
@@ -207,9 +223,9 @@ def clip_entries(root, stack=(), trail=""):
             objects = set(collection.all_objects)
             for obj in collection.all_objects:
                 if obj.parent not in objects:
-                    yield from clip_entries(obj, stack + (collection.as_pointer(),), path)
+                    yield from clip_entries(obj, stack + (collection.as_pointer(),), path, owner)
     for child in root.children:
-        yield from clip_entries(child, stack, path)
+        yield from clip_entries(child, stack, path, owner)
 
 
 def remap_assets(state):
