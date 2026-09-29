@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "io_object_mu_blender51"
-version = "0.9.4"
+version = "0.11.5"
 name = "Mu model format (KSP)"
 tagline = "Import and export Kerbal Space Program Mu models in Blender 5.1"
 maintainer = "Bill Currie; Blender 5.1 port contributors"
@@ -25,5 +25,7 @@ paths_exclude_pattern = [
   "*.pyc",
   ".git/",
   ".gitignore",
+  "tests/",
+  "docs/",
   "*.zip",
 ]

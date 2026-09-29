@@ -6,3 +6,11 @@
 *.pyc
 __pycache__/
 test/
+
+# Local test output, user files and configuration
+tests/artifacts/
+tests/logs/
+backups/
+.env
+.env.*
+*.log

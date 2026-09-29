@@ -46,10 +46,10 @@ def export_bone(bone, mu, armature, bone_children, path):
     path += bone.name
     mubone = MuObject()
     obj = bone_children.get(bone.name)
-    armature.bone_paths[f'pose.bones["{bone.name}"]'] = path
+    armature.bone_paths[f'pose.bones["{bpy.utils.escape_identifier(bone.name)}"]'] = path
     mubone.transform = bone_transform (bone, obj)
     if obj:
-        make_obj_core(mu, obj, path, mubone)
+        make_obj_core(mu, obj, path.rpartition('/')[0], mubone)
     else:
         mubone.tag_and_layer = MuTagLayer()
         #FIXME inherit parent tag and layer
@@ -86,7 +86,6 @@ def handle_armature(obj, muobj, mu):
     if len(deform_children) > 1:
         mu.messages.append(({'WARNING'}, "too many deform children, ignoring excess"))
         deform_children = deform_children[:1]
-    print(f"handle_armature: {obj.name} {deform_children[0].name}")
     path = mu.path
     if deform_children:
         child = deform_children[0]

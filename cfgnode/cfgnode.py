@@ -64,6 +64,15 @@ class ConfigNode:
                 if script.tokenAvailable(False):
                     script.getLine()
                 continue
+            if script.token == '{' and not top and getattr(script, 'allow_unnamed', False):
+                # A malformed optional MODULE in a mod must not discard an
+                # otherwise usable PART or the entire ModuleManager database.
+                # Preserve the anonymous block without inventing its meaning.
+                script.parse_issues.append(f'{script.filename}:{script.line}: anonymous block preserved as metadata')
+                new_node = ConfigNode('', script.line)
+                ConfigNode.ParseNode(new_node, script, False)
+                node.nodes.append(new_node)
+                continue
             if script.token in (['{', '}', '='] if top else ['{', '=']):
                 cfg_error(script, "unexpected " + script.token)
             if script.token == '}':
@@ -93,25 +102,32 @@ class ConfigNode:
         if not top:
             cfg_error(script, "unexpected end of file")
     @classmethod
-    def load(cls, text):
+    def load(cls, text, allow_unnamed=False, filename=''):
         if not text:
             return []
-        script = Script("", text, "{}=", False)
+        script = Script(filename, text, "{}=", False)
+        script.allow_unnamed = allow_unnamed
+        script.parse_issues = []
         script.error = cfg_error.__get__(script, Script)
         nodes = []
         while script.tokenAvailable(True):
             node = ConfigNode("", script.line)
             ConfigNode.ParseNode(node, script, True)
+            node.parse_issues = script.parse_issues
             nodes.append(node)
         if len(nodes) == 1:
             return nodes[0]
         else:
             return nodes
     @classmethod
-    def loadfile(cls, path):
-        bytes = open(path, "rb").read()
-        text = "".join(map(lambda b: chr(b), bytes))
-        return cls.load(text)
+    def loadfile(cls, path, allow_unnamed=False):
+        with open(path, 'rb') as stream:
+            data = stream.read()
+        try:
+            text = data.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            text = data.decode('latin-1')
+        return cls.load(text, allow_unnamed=allow_unnamed, filename=str(path))
     def GetNode(self, key):
         for n in self.nodes:
             if n.name == key:

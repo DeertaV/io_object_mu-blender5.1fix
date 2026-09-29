@@ -26,14 +26,14 @@ class WORKSPACE_PT_tools_mu_tools2(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Tool"
     bl_context = ".objectmode"
-    bl_label = "Mu Hierarchy"
+    bl_label = "Mu 层级"
 
     def draw(self, context):
         layout = self.layout
         #col = layout.column(align=True)
-        layout.operator("object.mu_apply_scale", text = "Apply Scale");
-        layout.operator("object.mu_clearinverse", text = "Clear Inverse");
-        layout.operator("object.mu_calc_ping_props", text = "Measure Wing");
+        layout.operator("object.mu_apply_scale", text = "应用缩放");
+        layout.operator("object.mu_clearinverse", text = "清除父级逆矩阵");
+        layout.operator("object.mu_calc_ping_props", text = "测量机翼");
 
 classes_to_register = (
     WORKSPACE_PT_tools_mu_tools2,

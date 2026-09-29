@@ -39,6 +39,8 @@ from .collider import create_collider
 from .light import create_light
 from .mesh import create_mesh
 from .textures import create_textures
+from ..utils.import_assets import finalize_assets, auxiliary, preserve_metadata
+from ..utils.naming import preserve_original_name
 
 def skip_component(mu, muobj, mumesh, name):
     return None
@@ -70,6 +72,9 @@ def create_component_object(collection, component, objname, xform):
         cobj.rotation_quaternion @= rot
     if post:
         post[0](cobj, *post[1:])
+    if cobj.type in {'LIGHT', 'CAMERA'}:
+        auxiliary(cobj, "灯光" if cobj.type == 'LIGHT' else "相机")
+    preserve_original_name(cobj)
     return cobj
 
 def create_object(mu, muobj, parent):
@@ -79,6 +84,9 @@ def create_object(mu, muobj, parent):
     mu.imported_objects.add(muobj)
 
     xform = muobj.transform
+    # Retain every source transform, including unnamed or componentless leaves.
+    # Collider components remain disabled, but their transform nodes still belong
+    # to the source hierarchy. Visibility is controlled separately by auxiliary().
 
     component_data = []
     for component in muobj.components:
@@ -125,6 +133,7 @@ def create_object(mu, muobj, parent):
         mu.collection.objects.link(obj)
 
     if not obj.data:
+        auxiliary(obj, "变换节点")
         if xform.name[:5] == "node_":
             #print(name, xform.name[:5])
             obj.empty_display_type = 'SINGLE_ARROW'
@@ -141,6 +150,19 @@ def create_object(mu, muobj, parent):
             #print(obj.rotation_quaternion)
 
     muobj.bobj = obj
+    preserve_original_name(obj)
+    obj["ksp_original_path"] = muobj.path
+    if obj.type == 'ARMATURE':
+        auxiliary(obj, "骨架")
+    elif obj.type in {'LIGHT', 'CAMERA'}:
+        auxiliary(obj, "灯光" if obj.type == 'LIGHT' else "相机")
+    elif obj.type == 'MESH' and not hasattr(muobj, "renderer"):
+        auxiliary(obj, "不可见网格")
+    for component in muobj.components:
+        if type(component) not in type_handlers or type(component).__name__ == 'MuAnimation':
+            preserve_metadata(obj, component)
+            if type(component).__name__ != 'MuAnimation':
+                mu.data_issues.append(f"Metadata only: {muobj.path}: {type(component).__name__}")
     if hasattr(muobj, "bone") and hasattr(muobj, "armature"):
         set_transform(obj, None)
         parent_to_bone(obj, muobj.armature.armature_obj, muobj.bone)
@@ -184,19 +206,35 @@ def process_mu(mu, mudir):
     create_textures(mu, mudir)
     create_materials(mu)
     create_object_paths(mu)
+    mu.required_paths = set()
+    for path, node in mu.object_paths.items():
+        if hasattr(node, "animation"):
+            mu.required_paths.add(path)
+            for clip in node.animation.clips:
+                for curve in clip.curves:
+                    from .animation import resolve_object_path
+                    resolved = resolve_object_path(mu, path, path + "/" + curve.path if curve.path else path)
+                    if resolved:
+                        mu.required_paths.add(resolved)
     create_armatures(mu)
     mu.imported_objects = set()
     return create_object(mu, mu.obj, None)
 
-def import_mu(collection, filepath, create_colliders, force_armature, force_mesh=False):
+def import_mu(collection, filepath, create_colliders, force_armature,
+              force_mesh=True, mute_imported_animations=True):
     mu = Mu()
     mu.messages = []
-    mu.create_colliders = create_colliders
+    mu.create_colliders = False
     mu.force_armature = force_armature
     mu.force_mesh = force_mesh
+    mu.mute_imported_animations = mute_imported_animations
     mu.collection = collection
+    mu.source_clips = []
+    mu.data_issues = []
     if not mu.read(filepath):
         raise MuImportError("Mu", "Unrecognized format: magic %x version %d"
                                   % (mu.magic, mu.version))
 
-    return process_mu(mu, os.path.dirname(filepath)), mu
+    root = process_mu(mu, os.path.dirname(filepath))
+    finalize_assets(mu, root, filepath)
+    return root, mu

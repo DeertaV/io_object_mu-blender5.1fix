@@ -29,5 +29,8 @@ else:
     from .object import collect_objects, collect_collections
     from .object import collect_hierarchy_objects
     from .object import collect_armature_modifiers, collect_modifiers
+    from .naming import original_ksp_name, rename_import_hierarchy
+    from .naming import rename_import_collection
+    from .naming import rename_single_import_object, safe_display_base
     from .transform import translate, rotate, scale
 from .utils import swapyz, swizzleq, strip_nnn, vector_str

@@ -58,7 +58,7 @@ class OBJECT_PT_MuMaterialPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'material'
-    bl_label = 'Mu Shader'
+    bl_label = 'Mu 着色器'
 
     @classmethod
     def poll(cls, context):
@@ -72,6 +72,9 @@ class OBJECT_PT_MuMaterialPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        row = layout.row(align=True)
+        row.operator('material.ksp_preview_arrange', text='整理节点')
+        row.operator('material.ksp_preview_simplify', text='精简 KSP 材质')
         matprops = context.material.mumatprop
         row = layout.row()
         col = row.column()

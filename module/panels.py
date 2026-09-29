@@ -55,7 +55,7 @@ class OBJECT_PT_KSPModulesPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'object'
-    bl_label = 'KSP Modules'
+    bl_label = 'KSP 模块'
 
     @classmethod
     def poll(cls, context):
@@ -65,7 +65,7 @@ class OBJECT_PT_KSPModulesPanel(bpy.types.Panel):
         layout = self.layout
         modules = context.active_object.kspmodules.modules
         row = layout.row()
-        row.operator_menu_enum("object.add_ksp_module", "type")
+        row.operator_menu_enum("object.add_ksp_module", "type", text="添加 KSP 模块")
         row.operator(KSPMU_OT_ScanModuleDefs.bl_idname, text="", icon='FILE_REFRESH')
         col = row.column()
         index = 0

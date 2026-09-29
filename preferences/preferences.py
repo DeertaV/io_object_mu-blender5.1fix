@@ -28,9 +28,11 @@ from bpy.props import StringProperty, BoolProperty
 from . import colorpalettes
 
 def addon_package_name():
-    parts = __package__.split(".")
+    parts = (__package__ or "").split(".")
     if len(parts) >= 3 and parts[0] == "bl_ext":
         return ".".join(parts[:3])
+    if len(parts) >= 2 and parts[-1] == "preferences":
+        return ".".join(parts[:-1])
     return parts[0]
 
 package_name = addon_package_name()
@@ -96,8 +98,8 @@ class IOObjectMu_AddonPreferences(AddonPreferences):
     bl_idname = package_name
 
     GameData: StringProperty(
-        name="GameData Path",
-        description="Path to KSP GameData tree",
+        name="KSP 游戏 / GameData 目录",
+        description="选择 KSP 游戏目录或其中的 GameData 目录；更改模组后可在 KSP 页面重建索引",
         subtype='DIR_PATH')
 
     AutohideColliders: BoolProperty(
@@ -128,6 +130,21 @@ class IOObjectMu_AddonPreferences(AddonPreferences):
 def Preferences():
     preferences = bpy.context.preferences
     addons = preferences.addons
+    keys = [package_name]
+    parts = (__package__ or "").split(".")
+    if len(parts) >= 3 and parts[0] == "bl_ext":
+        keys.append(".".join(parts[:3]))
+    if len(parts) >= 2 and parts[-1] == "preferences":
+        keys.append(".".join(parts[:-1]))
+    keys.append("io_object_mu_blender51")
+    for key in keys:
+        if key in addons:
+            prefs = addons[key]
+            return prefs.preferences
+    for key in addons.keys():
+        if key.endswith(".io_object_mu_blender51"):
+            prefs = addons[key]
+            return prefs.preferences
     prefs = addons[package_name]
     return prefs.preferences
 

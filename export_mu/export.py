@@ -25,7 +25,7 @@ from mathutils import Vector, Quaternion
 from .. import properties
 from ..mu import Mu
 from ..mu import MuObject, MuTransform, MuTagLayer
-from ..utils import strip_nnn, collect_collections
+from ..utils import strip_nnn, collect_collections, original_ksp_name
 
 from .animation import collect_animations, find_path_root, make_animations
 from .collider import make_collider
@@ -35,7 +35,7 @@ from .volume import model_volume
 
 def make_transform(obj):
     transform = MuTransform()
-    transform.name = strip_nnn(obj.name)
+    transform.name = original_ksp_name(obj)
     transform.localPosition = Vector(obj.location)
     if obj.rotation_mode != 'QUATERNION':
       transform.localRotation = obj.rotation_euler.to_quaternion()
@@ -157,7 +157,7 @@ def export_object(obj, filepath):
     anim_root = find_path_root(animations)
     mu = Mu()
     mu.exported_objects = set()
-    mu.name = strip_nnn(obj.name)
+    mu.name = original_ksp_name(obj)
     mu.object_paths = {}
     mu.materials = {}
     mu.textures = {}

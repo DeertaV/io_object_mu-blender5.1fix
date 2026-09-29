@@ -25,6 +25,7 @@ from mathutils import Vector, Quaternion
 from math import pi
 from .light import light_power
 from ..utils.blender_compat import ensure_action_fcurve
+from ..utils.import_assets import uid
 
 #mess with the heads of 6.28... fans :P
 tau = pi / 180
@@ -150,11 +151,11 @@ def shader_property(obj, prop):
 
 def create_fcurve(action, datablock, curve, propmap):
     dp, ind, mult = propmap
-    fps = bpy.context.scene.render.fps
+    fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
     fc = ensure_action_fcurve(action, datablock, dp, ind)
     fc.keyframe_points.add(len(curve.keys))
     for i, key in enumerate(curve.keys):
-        x,y = key.time * fps + bpy.context.scene.frame_start, key.value * mult
+        x,y = key.time * fps + 1, key.value * mult
         fc.keyframe_points[i].co = x, y
         fc.keyframe_points[i].handle_left_type = 'FREE'
         fc.keyframe_points[i].handle_right_type = 'FREE'
@@ -173,13 +174,13 @@ def create_fcurve(action, datablock, curve, propmap):
     return fc
 
 def create_enabled_fcurves(action, obj, curve):
-    fps = bpy.context.scene.render.fps
+    fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
     fcurves = []
     for data_path in ("hide_viewport", "hide_render"):
         fc = ensure_action_fcurve(action, obj, data_path, None)
         fc.keyframe_points.add(len(curve.keys))
         for i, key in enumerate(curve.keys):
-            x = key.time * fps + bpy.context.scene.frame_start
+            x = key.time * fps + 1
             y = 0.0 if key.value > 0.5 else 1.0
             fc.keyframe_points[i].co = x, y
             fc.keyframe_points[i].interpolation = 'CONSTANT'
@@ -189,6 +190,12 @@ def create_enabled_fcurves(action, obj, curve):
 def create_action(mu, path, clip):
     #print(clip.name)
     actions = {}
+    times = [key.time for curve in clip.curves for key in curve.keys]
+    fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
+    source = {"uid": uid(), "name": clip.name, "path": path, "start": 1 + min(times, default=0) * fps,
+              "end": 1 + max(times, default=0) * fps, "fps": fps,
+              "issues": [], "bindings": []}
+    mu.source_clips.append(source)
     bones = set()
     for curve in clip.curves:
         if not curve.keys:
@@ -199,6 +206,7 @@ def create_action(mu, path, clip):
             mu_path = "/".join([path, curve.path])
         resolved_path = resolve_object_path(mu, path, mu_path)
         if not resolved_path:
+            source["issues"].append(f"Unresolved path: {mu_path} ({curve.property})")
             if mu_path not in mu.bad_paths:
                 mu.bad_paths.add(mu_path)
                 print("Unknown path: %s" % (mu_path))
@@ -208,10 +216,11 @@ def create_action(mu, path, clip):
         dppref = ""
         if hasattr(muobj, "bone"):
             obj = muobj.armature.armature_obj
-            dppref = f'pose.bones["{muobj.bone}"].'
+            dppref = f'pose.bones["{bpy.utils.escape_identifier(muobj.bone)}"].'
         elif hasattr(muobj, "bobj"):
             obj = muobj.bobj
         else:
+            source["issues"].append(f"No Blender target: {mu_path}")
             print("No blender object at path: %s" % (mu_path))
             continue
 
@@ -228,6 +237,7 @@ def create_action(mu, path, clip):
         if curve.property not in property_map:
             sp = shader_property(obj, curve.property)
             if not sp:
+                source["issues"].append(f"Unsupported channel: {mu_path}: {curve.property}")
                 print("%s: Unknown property: %s" % (mu_path, curve.property))
                 continue
             obj, dp, rnaIndex = sp
@@ -242,6 +252,10 @@ def create_action(mu, path, clip):
 
         if subpath != "obj":
             obj = getattr (obj, subpath)
+
+        if curve.property == "m_Color.a" and isinstance(obj, bpy.types.Light):
+            source["issues"].append(f"Light alpha is not supported: {mu_path}")
+            continue
 
         name = objname
         actpath = "/".join([curve.path, name])
@@ -308,11 +322,27 @@ def create_action(mu, path, clip):
                     rotkey("handle_right")
     for name in actions:
         act, obj = actions[name]
+        act.use_fake_user = True
+        act["ksp_clip_name"] = clip.name
+        act["ksp_target_object"] = obj.name
+        act["ksp_imported_action"] = True
+        source["bindings"].append((act, obj, name))
+        act["ksp_source_clip_uid"] = source["uid"]
+        act["ksp_source_fps"] = fps
+        if bool(getattr(mu, "mute_imported_animations", True)):
+            # Keep imported clips available for the KSP Animation panel without
+            # connecting them to animation_data/NLA.  This prevents Blender's
+            # timeline from immediately evaluating deploy animations such as
+            # parachutes after import.
+            if getattr(obj, "animation_data", None) and obj.animation_data.action == act:
+                obj.animation_data.action = None
+            continue
         if not obj.animation_data:
             obj.animation_data_create()
         track = obj.animation_data.nla_tracks.new()
         track.name = clip.name
-        track.strips.new(act.name, 1, act)
+        strip = track.strips.new(act.name, 1, act)
+        strip.name = clip.name
 
 def create_object_paths(mu):
     def recurse (mu, obj, parent_names, parent):

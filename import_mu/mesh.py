@@ -22,7 +22,7 @@
 import bpy
 import bmesh
 
-from ..mu import MuMesh, MuSkinnedMeshRenderer
+from ..mu import MuMesh, MuSkinnedMeshRenderer, MuCollider_Base
 from ..utils import create_data_object
 
 from .armature import create_vertex_groups, create_armature_modifier
@@ -31,10 +31,15 @@ from ..utils.blender_compat import enable_custom_normals
 
 def attach_material(mesh, renderer, mu):
     if mu.materials and renderer.materials:
-        #KSP supports only the first submesh and thus only the first
-        #material
-        mumat = mu.materials[renderer.materials[0]]
-        mesh.materials.append(mumat.material)
+        slots = {}
+        for slot, index in enumerate(renderer.materials):
+            if 0 <= index < len(mu.materials):
+                slots[slot] = len(mesh.materials)
+                mesh.materials.append(mu.materials[index].material)
+            else:
+                mu.data_issues.append(f"Invalid material index {index}: {mesh.name}")
+        for polygon in mesh.polygons:
+            polygon.material_index = slots.get(polygon.material_index, 0)
 
 def create_uvs(mu, uvs, mesh, name):
     uv_layer = mesh.uv_layers.new(name=name).data
@@ -54,12 +59,28 @@ def create_mesh(mu, mumesh, name):
     for sm in mumesh.submeshes:
         faces.extend(sm)
     mesh.from_pydata(mumesh.verts, [], faces)
+    offset = 0
+    for slot, submesh in enumerate(mumesh.submeshes):
+        for polygon in mesh.polygons[offset:offset + len(submesh)]:
+            polygon.material_index = slot
+        offset += len(submesh)
     if mumesh.uvs:
         create_uvs(mu, mumesh.uvs, mesh, "UVMap")
     if mumesh.uv2s:
         create_uvs(mu, mumesh.uv2s, mesh, "UVMap2")
     if mumesh.normals:
         create_normals(mu, mumesh.normals, mesh)
+    if len(mumesh.colors) == len(mumesh.verts):
+        colors = mesh.color_attributes.new(name="KSP Vertex Color", type='FLOAT_COLOR', domain='CORNER')
+        for loop in mesh.loops:
+            colors.data[loop.index].color = mumesh.colors[loop.vertex_index]
+    if len(mumesh.tangents) == len(mumesh.verts):
+        tangent = mesh.attributes.new(name="ksp_source_tangent", type='FLOAT_VECTOR', domain='POINT')
+        sign = mesh.attributes.new(name="ksp_source_tangent_sign", type='FLOAT', domain='POINT')
+        for index, value in enumerate(mumesh.tangents):
+            tangent.data[index].vector = value[:3]
+            sign.data[index].value = value[3]
+        mu.data_issues.append(f"Source tangents retained as mesh attributes: {name}")
     #FIXME how to set tangents?
     #if mumesh.tangents:
     #    for i, t in enumerate(mumesh.tangents):
@@ -71,6 +92,13 @@ def mesh_post(obj, renderer):
     obj.muproperties.receiveShadows = renderer.receiveShadows
 
 def create_mesh_component(mu, muobj, mumesh, name):
+    # Unity often exports both a collider component AND its MeshFilter.  Turning
+    # off the collider handler alone used to leave that second white mesh behind.
+    # Component identity (not COL-like names) distinguishes collision-only nodes.
+    if not hasattr(muobj, 'renderer') and any(isinstance(c, MuCollider_Base)
+                                             for c in muobj.components):
+        mu.data_issues.append(f"Collision-only MeshFilter omitted; transform retained: {muobj.path}")
+        return None
     if not mu.force_mesh and not hasattr(muobj, "renderer"):
         return None
     mesh = create_mesh (mu, mumesh, name)

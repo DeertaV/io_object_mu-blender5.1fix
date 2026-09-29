@@ -54,6 +54,8 @@ shader_aliases = {
     "KSP/Particles/Alpha Blended": "KSP/Alpha/Translucent Additive",
 }
 
+KSP_PREVIEW_PRINCIPLED = "Principled BSDF"
+
 
 def node_tree_add_input(node_tree, socket_type, name):
     if hasattr(node_tree, "interface") and node_tree.interface is not None:
@@ -229,10 +231,16 @@ def set_tex(mu, dst, src, context):
         else:
             dst.tex = tex.name
         dst.type = tex.type
+        if hasattr(tex, "blender_image_name"):
+            dst["blender_image_name"] = tex.blender_image_name
+            dst['ksp_image_binding'] = True
+        if hasattr(tex, 'source_filepath'):
+            dst['ksp_texture_source'] = tex.source_filepath
     except IndexError:
         pass
-    if dst.tex in bpy.data.images:
-        dst.rgbNorm = not bpy.data.images[dst.tex].muimageprop.convertNorm
+    image = bpy.data.images.get(dst.get('blender_image_name', dst.tex))
+    if image:
+        dst.rgbNorm = not image.muimageprop.convertNorm
     dst.scale = src.scale
     dst.offset = src.offset
     if context.material.node_tree:
@@ -280,11 +288,310 @@ def create_nodes(mat):
     else:
         print(f"WARNING: unknown shader: {shaderName}")
 
+def _norm_name(name):
+    return (name or "").replace(" ", "").replace("-", "").replace("_", "").lower()
+
+def _find_socket(sockets, *names):
+    for name in names:
+        if name in sockets:
+            return sockets[name]
+    wanted = {_norm_name(name) for name in names}
+    for socket in sockets:
+        if _norm_name(socket.name) in wanted:
+            return socket
+    return None
+
+def _find_named_node(nodes, node_type, names):
+    wanted = {_norm_name(name) for name in names}
+    candidates = []
+    for node in nodes:
+        if node_type and getattr(node, "type", None) != node_type:
+            continue
+        keys = {_norm_name(getattr(node, "name", "")),
+                _norm_name(getattr(node, "label", ""))}
+        if keys & wanted:
+            return node
+        if any(want and any(want in key for key in keys) for want in wanted):
+            candidates.append(node)
+    return candidates[0] if candidates else None
+
+def _find_prop_value(prop_set, names):
+    item = _find_prop_item(prop_set, names)
+    return getattr(item, "value", None) if item else None
+
+def _find_prop_item(prop_set, names):
+    wanted = {_norm_name(name) for name in names}
+    for item in getattr(prop_set, "properties", []):
+        if _norm_name(getattr(item, "name", "")) in wanted:
+            return item
+    return None
+
+def _resolve_image(texname):
+    if not texname:
+        return None
+    if texname in bpy.data.images:
+        return bpy.data.images[texname]
+    return None
+
+def _clear_links_to(node_tree, to_socket):
+    if not to_socket:
+        return
+    for link in list(to_socket.links):
+        node_tree.links.remove(link)
+
+def _link(node_tree, from_socket, to_socket, clear=True):
+    if not from_socket or not to_socket:
+        return False
+    if clear:
+        _clear_links_to(node_tree, to_socket)
+    node_tree.links.new(from_socket, to_socket)
+    return True
+
+def _set_default_color(socket, value):
+    if not socket or value is None:
+        return
+    try:
+        vals = list(value)
+    except TypeError:
+        return
+    if len(vals) >= 3:
+        if len(vals) < 4:
+            vals.append(1.0)
+        socket.default_value = vals[:4]
+
+def _set_default_float(socket, value):
+    if not socket or value is None:
+        return
+    try:
+        socket.default_value = float(value)
+    except (TypeError, ValueError):
+        pass
+
+def _create_texture_node(node_tree, texprop, location):
+    if not texprop:
+        return None
+    node = node_tree.nodes.new("ShaderNodeTexImage")
+    node.name = texprop.name
+    node.label = texprop.name
+    node.location = location
+    image = _resolve_image(texprop.get("blender_image_name", ""))
+    if image is None and not texprop.get('ksp_image_binding'):
+        image = _resolve_image(texprop.tex)
+    if image:
+        normal_role = texprop.type or texprop.name.casefold() in ('_bumpmap', '_normalmap')
+        if image.colorspace_settings.is_data != bool(normal_role):
+            # One source can be referenced as both albedo and data. Never
+            # change the color interpretation of another material's image.
+            image = image.copy()
+            image.colorspace_settings.is_data = bool(normal_role)
+            image['ksp_texture_normal'] = bool(normal_role)
+            texprop['blender_image_name'] = image.name
+        node.image = image
+    return node
+
+def _texture_uv(tree, uv, tex, prop):
+    if not tex:
+        return
+    # Image.texture_mapping is not a substitute for shader input coordinates.
+    # Keep the original game scale/offset in RNA, apply it explicitly in nodes.
+    mapping = tree.nodes.new('ShaderNodeMapping')
+    mapping.name = prop.name + ' UV Transform'
+    mapping.vector_type = 'POINT'
+    sx, sy = prop.scale
+    ox, oy = prop.offset
+    if tex.image and tex.image.muimageprop.invertY:
+        sy, oy = -sy, 1 - oy
+    mapping.inputs['Scale'].default_value = (sx, sy, 1)
+    mapping.inputs['Location'].default_value = (ox, oy, 0)
+    _link(tree, uv.outputs['UV'], mapping.inputs['Vector'])
+    _link(tree, mapping.outputs['Vector'], tex.inputs['Vector'])
+
+
+def _math(tree, operation, a, b):
+    node = tree.nodes.new('ShaderNodeMath')
+    node.operation = operation
+    for socket, value in zip(node.inputs, (a, b)):
+        if isinstance(value, (int, float)):
+            socket.default_value = value
+        else:
+            _link(tree, value, socket)
+    return node.outputs[0]
+
+
+def _prop_output(mat, kind, names, fallback, label, value_channel=None):
+    tree = mat.node_tree
+    item = _find_prop_item(getattr(mat.mumatprop, kind), names)
+    color = kind == 'color' and value_channel is None
+    node = tree.nodes.new('ShaderNodeRGB' if color else 'ShaderNodeValue')
+    node.name = label
+    value = item.value if item else fallback
+    node.outputs[0].default_value = value[value_channel] if item and value_channel is not None else value
+    if item:
+        index = next(i for i, p in enumerate(getattr(mat.mumatprop, kind).properties) if p == item)
+        path = f'mumatprop.{kind}.properties[{index}].value'
+        for channel in range(4) if color else (None,):
+            fc = node.outputs[0].driver_add('default_value', channel) if color else node.outputs[0].driver_add('default_value')
+            variable = fc.driver.variables.new()
+            variable.name, variable.type = 'value', 'SINGLE_PROP'
+            variable.targets[0].id_type = 'MATERIAL'
+            variable.targets[0].id = mat
+            component = value_channel if value_channel is not None else channel
+            variable.targets[0].data_path = path + (f'[{component}]' if component is not None else '')
+            fc.driver.expression = 'value'
+    return node.outputs[0]
+
+
+def _multiply_color(tree, a, b, name):
+    node = tree.nodes.new('ShaderNodeMixRGB')
+    node.name = name
+    node.blend_type = 'MULTIPLY'
+    node.inputs[0].default_value = 1
+    _link(tree, a, node.inputs[1])
+    _link(tree, b, node.inputs[2])
+    return node.outputs[0]
+
+
+def _normal_color(tree, tex, prop):
+    if prop.rgbNorm:
+        return tex.outputs['Color']
+    # Unity DXT5nm stores X in alpha and Y in green. Reconstruct Z without
+    # modifying the source image, so exporting retains the original resource.
+    separate = tree.nodes.new('ShaderNodeSeparateColor')
+    _link(tree, tex.outputs['Color'], separate.inputs['Color'])
+    x = _math(tree, 'MULTIPLY_ADD', tex.outputs['Alpha'], 2)
+    # MULTIPLY_ADD's third input defaults to zero, set it explicitly to -1.
+    x.node.inputs[2].default_value = -1
+    y = _math(tree, 'MULTIPLY_ADD', separate.outputs['Green'], 2)
+    y.node.inputs[2].default_value = -1
+    xy = _math(tree, 'ADD', _math(tree, 'MULTIPLY', x, x), _math(tree, 'MULTIPLY', y, y))
+    z = _math(tree, 'SQRT', _math(tree, 'MAXIMUM', _math(tree, 'SUBTRACT', 1, xy), 0), 0)
+    z = _math(tree, 'MULTIPLY_ADD', z, .5)
+    z.node.inputs[2].default_value = .5
+    combine = tree.nodes.new('ShaderNodeCombineColor')
+    _link(tree, tex.outputs['Alpha'], combine.inputs['Red'])
+    _link(tree, separate.outputs['Green'], combine.inputs['Green'])
+    _link(tree, z, combine.inputs['Blue'])
+    return combine.outputs[0]
+
+def ensure_principled_preview(mat):
+    """Build a clean Blender-friendly material graph for imported KSP mats.
+
+    KSP export data is stored in mat.mumatprop, so imported materials do not
+    need to keep the large compatibility node groups visible.  The clean graph
+    intentionally matches a normal Blender workflow:
+
+        UV Map -> _MainTex -> Principled BSDF Base Color -> Material Output
+        UV Map -> _Emissive -> Principled BSDF Emission Color
+    """
+    if not mat:
+        return
+
+    mat.use_nodes = True
+    node_tree = mat.node_tree
+    if not node_tree:
+        return
+
+    nodes = node_tree.nodes
+    links = node_tree.links
+    # Only the generated node preview is rebuilt. Material Actions and KSP
+    # source properties/clip bindings are separate IDs and remain untouched.
+    node_tree.animation_data_clear()
+    while len(links):
+        links.remove(links[0])
+    while len(nodes):
+        nodes.remove(nodes[0])
+
+    uv = nodes.new("ShaderNodeUVMap")
+    uv.name = "UV Map"
+    uv.location = (-850, 0)
+
+    principled = nodes.new("ShaderNodeBsdfPrincipled")
+    principled.name = KSP_PREVIEW_PRINCIPLED
+    principled.location = (-150, 0)
+
+    output = nodes.new("ShaderNodeOutputMaterial")
+    output.name = "Material Output"
+    output.location = (250, 0)
+
+    main_prop = _find_prop_item(mat.mumatprop.texture,
+                                ("_MainTex", "MainTex", "_BaseMap", "BaseMap"))
+    emissive_prop = _find_prop_item(mat.mumatprop.texture,
+                                    ("_Emissive", "_EmissiveMap",
+                                     "_Emission", "_EmissionMap"))
+    main_tex = _create_texture_node(node_tree, main_prop, (-550, 110))
+    emissive_tex = _create_texture_node(node_tree, emissive_prop, (-550, -140))
+
+    base_color = _find_socket(principled.inputs, "Base Color", "BaseColor")
+    emission_color = _find_socket(principled.inputs, "Emission Color",
+                                  "Emission", "EmissionColor")
+    emission_strength = _find_socket(principled.inputs, "Emission Strength",
+                                     "EmissionStrength")
+    surface = _find_socket(output.inputs, "Surface")
+    bsdf = _find_socket(principled.outputs, "BSDF")
+    uv_out = _find_socket(uv.outputs, "UV")
+
+    if main_tex:
+        _texture_uv(node_tree, uv, main_tex, main_prop)
+        tint = _prop_output(mat, 'color', ('_Color', '_BaseColor'), (1, 1, 1, 1), 'KSP Tint')
+        _link(node_tree, _multiply_color(node_tree, main_tex.outputs['Color'], tint, 'KSP Albedo'), base_color)
+    else:
+        value = _find_prop_value(mat.mumatprop.color, ("_Color", "_BaseColor"))
+        _link(node_tree, _prop_output(mat, 'color', ('_Color', '_BaseColor'), value or (1, 1, 1, 1), 'KSP Tint'), base_color)
+
+    if emissive_tex:
+        _texture_uv(node_tree, uv, emissive_tex, emissive_prop)
+        tint = _prop_output(mat, 'color', ('_EmissiveColor', '_EmissionColor'), (1, 1, 1, 1), 'KSP Emission Tint')
+        _link(node_tree, _multiply_color(node_tree, emissive_tex.outputs['Color'], tint, 'KSP Emission'), emission_color)
+        _set_default_float(emission_strength, 1.0)
+    else:
+        value = _find_prop_value(mat.mumatprop.color,
+                                 ("_EmissiveColor", "_EmissionColor"))
+        if value is not None:
+            _link(node_tree, _prop_output(mat, 'color', ('_EmissiveColor', '_EmissionColor'), value, 'KSP Emission Tint'), emission_color)
+            _set_default_float(emission_strength, 1.0)
+
+    shader = mat.mumatprop.shaderName.casefold()
+    # Specular texture alpha is a specular mask, NOT transparency.
+    if 'specular' in shader and main_tex:
+        _link(node_tree, main_tex.outputs['Alpha'], principled.inputs['Specular IOR Level'])
+    shininess = _find_prop_value(mat.mumatprop.float3, ('_Shininess',))
+    if shininess is not None:
+        principled.inputs['Roughness'].default_value = (2 / (2 + max(0, shininess) * 128)) ** .5
+    normal_prop = _find_prop_item(mat.mumatprop.texture, ('_BumpMap', '_NormalMap'))
+    normal_tex = _create_texture_node(node_tree, normal_prop, (-550, -400))
+    if normal_tex and normal_tex.image:
+        _texture_uv(node_tree, uv, normal_tex, normal_prop)
+        normal = nodes.new('ShaderNodeNormalMap')
+        normal.name = 'KSP Normal Map'
+        _link(node_tree, _normal_color(node_tree, normal_tex, normal_prop), normal.inputs['Color'])
+        _link(node_tree, normal.outputs['Normal'], principled.inputs['Normal'])
+    if 'cutoff' in shader or 'translucent' in shader or 'transparent' in shader:
+        alpha = main_tex.outputs['Alpha'] if main_tex else 1
+        tint_alpha = _prop_output(mat, 'color', ('_Color', '_BaseColor'), 1, 'KSP Tint Alpha', value_channel=3)
+        alpha = _math(node_tree, 'MULTIPLY', alpha, tint_alpha)
+        opacity = _prop_output(mat, 'float3', ('_Opacity',), 1, 'KSP Opacity')
+        alpha = _math(node_tree, 'MULTIPLY', alpha, opacity)
+        if 'cutoff' in shader:
+            cutoff = _prop_output(mat, 'float3', ('_Cutoff',), .5, 'KSP Alpha Cutoff')
+            alpha = _math(node_tree, 'GREATER_THAN', alpha, cutoff)
+        _link(node_tree, alpha, principled.inputs['Alpha'])
+        mat.surface_render_method = 'DITHERED'
+    mat.diffuse_color = _find_prop_value(mat.mumatprop.color, ('_Color', '_BaseColor')) or (1, 1, 1, 1)
+    _link(node_tree, bsdf, surface)
+    from .preview_layout import compact_preview
+    compact_preview(mat)
+
 def make_shader4(mumat, mu):
     mat = bpy.data.materials.new(mumat.name)
     matprops = mat.mumatprop
     matprops.shaderName = mumat.shaderName
-    create_nodes(mat)
+    mat['ksp_imported_material'] = True
+    mu.data_issues.append(f'Blender Principled preview: {mumat.name}: {mumat.shaderName}; Unity lighting/runtime effects not simulated')
+    if mumat.shaderName not in shader_configs and not mumat.shaderName.startswith('KSP/'):
+        mu.data_issues.append(f'Approximate Blender shader conversion: {mumat.name}: {mumat.shaderName}')
+    # Imported materials use the explicit Blender preview below. Building an
+    # obsolete compatibility graph first can mutate shared image color spaces
+    # through legacy callbacks and report supported Cutoff shaders as unknown.
     class Context:
         pass
     ctx = Context()
@@ -294,6 +601,7 @@ def make_shader4(mumat, mu):
     make_shader_prop(mumat.floatProperties2, matprops.float2.properties, ctx)
     make_shader_prop(mumat.floatProperties3, matprops.float3.properties, ctx)
     make_shader_tex_prop(mu, mumat.textureProperties, matprops.texture.properties, ctx)
+    ensure_principled_preview(mat)
     return mat
 
 def make_shader(mumat, mu):

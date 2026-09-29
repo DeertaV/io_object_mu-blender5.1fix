@@ -41,7 +41,7 @@ class Prop:
         for g in bpy.data.collections:
             if g.name[:5] == "prop:":
                 url = g.name[5:]
-                prop = Prop("", ConfigNode.load(g.mumodelprops.config))
+                prop = Prop("", ConfigNode.load(g.mumodelprops.config, allow_unnamed=True))
                 prop.model = g
                 preloaded[url] = prop
         return preloaded
@@ -50,10 +50,12 @@ class Prop:
         self.path = os.path.dirname(path)
         self.name = cfg.GetValue("name")
         self.model = None
-    def get_model(self):
+    def get_model(self, missing_models=None):
         if not self.model:
             self.model = compile_model(self.db, self.path, "prop", self.name,
-                                       self.cfg, loaded_props_collection())
+                                       self.cfg, loaded_props_collection(), missing_models)
+            if self.model is None:
+                return None
             props = self.model.mumodelprops
             props.config = self.cfg.ToString(-1)
         model = self.instantiate(Vector((0, 0, 0)),
@@ -63,29 +65,48 @@ class Prop:
 
     def instantiate(self, loc, rot, scale):
         obj = bpy.data.objects.new(self.name, None)
+        from ..utils.import_assets import uid, auxiliary, collect_clips
+        obj['ksp_part_root'] = True
+        obj.ksp_assets.uid, obj.ksp_assets.source = uid(), self.path
         obj.instance_type = 'COLLECTION'
         obj.instance_collection = self.model
+        auxiliary(obj, 'PROP 根节点')
+        if collect_clips(obj):
+            obj.ksp_assets.clip_choice = '0'
         obj.location = loc
         return obj
 
 gamedata = None
 def import_prop(filepath):
     global gamedata
-    if not gamedata:
-        from .gamedata import GameData
-        gamedata = GameData(Preferences().GameData)
+    from ..import_craft.gamedata import GameData, game_data_root
+    configured = Preferences().GameData
+    if (not gamedata or game_data_root(configured) != gamedata.root
+            or gamedata.configuration_stamp() != gamedata.cache_stamp):
+        gamedata = GameData(configured)
+    gamedata.sync_aliases()
     try:
-        propcfg = ConfigNode.loadfile(filepath)
+        propcfg = ConfigNode.loadfile(filepath, allow_unnamed=True)
     except ConfigNodeError as e:
         print(filepath+e.message)
         return
-    if filepath[:len(gamedata.root)] == gamedata.root:
+    from ..import_mu import MuImportError
+    propnode = propcfg.GetNode('PROP') if isinstance(propcfg, ConfigNode) else None
+    if not propnode:
+        raise MuImportError('Prop', f'No PROP definition in {filepath}')
+    filepath = os.path.abspath(filepath).replace('\\', '/')
+    if filepath.casefold().startswith(gamedata.root.casefold() + '/'):
         #the prop is in GameData
-        propnode = propcfg.GetNode("PROP")
         name = propnode.GetValue("name")
-        return gamedata.props[name]
+        notes = []
+        result = gamedata.find_definition(name, 'PROP', notes)
+        if result is None:
+            raise MuImportError('Prop', f'PROP {name!r} missing or ambiguous: ' + '; '.join(notes))
+        return result
     # load it directly
-    return Prop(path, propcfg)
+    result = Prop(filepath, propnode)
+    result.db = gamedata
+    return result
 
 def make_prop(obj):
     name = strip_nnn(obj.name)

@@ -22,7 +22,7 @@
 import bpy
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 
-from ..utils import collect_hierarchy_objects
+from ..utils import collect_hierarchy_objects, original_ksp_name
 from ..utils.blender_compat import iter_action_fcurves
 
 
@@ -46,21 +46,21 @@ VALIDATION_TEXT_NAME = "KSP Animation Export Validation"
 
 
 class KSPMUAnimationWorkflowProperties(bpy.types.PropertyGroup):
-    clip_name: StringProperty(name="Clip", default="deploy")
-    start_frame: IntProperty(name="Start", default=1)
-    end_frame: IntProperty(name="End", default=60, min=1)
-    loop: BoolProperty(name="Loop", default=False)
+    clip_name: StringProperty(name="动画片段名", default="deploy")
+    start_frame: IntProperty(name="开始帧", default=1)
+    end_frame: IntProperty(name="结束帧", default=60, min=1)
+    loop: BoolProperty(name="循环", default=False)
 
-    start_event_gui_name: StringProperty(name="Start Event", default="Start")
-    end_event_gui_name: StringProperty(name="End Event", default="End")
-    action_gui_name: StringProperty(name="Action", default="Toggle")
+    start_event_gui_name: StringProperty(name="开始按钮名", default="Start")
+    end_event_gui_name: StringProperty(name="结束按钮名", default="End")
+    action_gui_name: StringProperty(name="动作按钮名", default="Toggle")
 
     helper_type: EnumProperty(
-        name="Transform",
+        name="变换类型",
         items=TRANSFORM_ITEMS,
         default='thrustTransform',
     )
-    last_validation: StringProperty(name="Last Validation", default="Not run")
+    last_validation: StringProperty(name="最近验证", default="未运行")
 
 
 def safe_idprop_get(data, name, default=None):
@@ -81,6 +81,26 @@ def iter_hierarchy(root):
     if not root:
         return []
     return collect_hierarchy_objects(root)
+
+
+def iter_self_and_descendants(root):
+    return iter_hierarchy(root)
+
+
+def add_target_alias(targets, key, obj):
+    if not key:
+        return
+    targets.setdefault(key, [])
+    if obj not in targets[key]:
+        targets[key].append(obj)
+
+
+def animation_target_map(root):
+    targets = {}
+    for target in iter_self_and_descendants(root):
+        add_target_alias(targets, target.name, target)
+        add_target_alias(targets, original_ksp_name(target), target)
+    return targets
 
 
 def action_fcurves(action):
@@ -299,7 +319,7 @@ def draw_model_clip_summary(layout, obj):
 class KSPMU_OT_KSPAnimationNewClip(bpy.types.Operator):
     '''Create a new KSP animation action on the active object'''
     bl_idname = "object.ksp_animation_new_clip"
-    bl_label = "New KSP Clip"
+    bl_label = "新建 KSP 动画片段"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -326,7 +346,7 @@ class KSPMU_OT_KSPAnimationNewClip(bpy.types.Operator):
 class KSPMU_OT_KSPAnimationPushActionToNLA(bpy.types.Operator):
     '''Push the active action to an NLA track named as the KSP clip'''
     bl_idname = "object.ksp_animation_push_action_to_nla"
-    bl_label = "Push Action to NLA"
+    bl_label = "推送 Action 到 NLA"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -366,14 +386,34 @@ class KSPMU_OT_KSPAnimationPushActionToNLA(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class KSPMU_OT_KSPAnimationEnableMutedAtCurrentFrame(bpy.types.Operator):
+    """Compatibility entrypoint: enable only the selected, reliably bound clip."""
+    bl_idname = "object.ksp_animation_enable_muted_at_current_frame"
+    bl_label = "加入所选导入动画（KSP 面板）"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None
+
+    def execute(self, context):
+        from ..utils.import_assets import model_root
+        root = model_root(context.active_object)
+        if not root:
+            self.report({'WARNING'}, "请在 KSP 页面迁移绑定或重新导入模型")
+            return {'CANCELLED'}
+        root.ksp_assets.insert_frame = context.scene.frame_current_final
+        return bpy.ops.object.ksp_imported_clip_add('INVOKE_DEFAULT')
+
+
 class KSPMU_OT_KSPCreateTransformHelper(bpy.types.Operator):
     '''Create a KSP/Unity axis transform empty at the 3D cursor'''
     bl_idname = "object.ksp_create_transform_helper"
-    bl_label = "Create KSP Transform"
+    bl_label = "创建 KSP 变换点"
     bl_options = {'REGISTER', 'UNDO'}
 
     transform_type: EnumProperty(
-        name="Transform",
+        name="变换点",
         items=TRANSFORM_ITEMS,
         default='thrustTransform',
     )
@@ -414,7 +454,7 @@ class KSPMU_OT_KSPCreateTransformHelper(bpy.types.Operator):
 class KSPMU_OT_KSPGenerateModuleAnimateGeneric(bpy.types.Operator):
     '''Generate a ModuleAnimateGeneric cfg snippet into a Blender text block'''
     bl_idname = "object.ksp_generate_module_animate_generic"
-    bl_label = "Generate ModuleAnimateGeneric"
+    bl_label = "生成 ModuleAnimateGeneric"
     bl_options = {'REGISTER'}
 
     def execute(self, context):
@@ -447,7 +487,7 @@ class KSPMU_OT_KSPGenerateModuleAnimateGeneric(bpy.types.Operator):
 class KSPMU_OT_KSPAnimationValidateExport(bpy.types.Operator):
     '''Validate active KSP animation export setup'''
     bl_idname = "object.ksp_animation_validate_export"
-    bl_label = "Validate KSP Animation Export"
+    bl_label = "验证 KSP 动画导出"
     bl_options = {'REGISTER'}
 
     @classmethod
@@ -522,9 +562,10 @@ class KSPMU_OT_KSPAnimationValidateExport(bpy.types.Operator):
 class VIEW3D_PT_KSPAnimationPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Tool"
+    bl_category = "KSP"
     bl_context = ".objectmode"
-    bl_label = "KSP Animation"
+    bl_label = "KSP 动画制作 / 导出"
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
@@ -536,38 +577,40 @@ class VIEW3D_PT_KSPAnimationPanel(bpy.types.Panel):
             draw_action_summary(layout, obj)
             draw_model_clip_summary(layout, obj)
         else:
-            layout.label(text="No active object", icon='ERROR')
+            layout.label(text="未选择对象", icon='ERROR')
 
         box = layout.box()
-        box.label(text="Clip", icon='ACTION')
+        box.label(text="动画片段", icon='ACTION')
         box.prop(props, "clip_name")
         row = box.row(align=True)
         row.prop(props, "start_frame")
         row.prop(props, "end_frame")
         box.prop(props, "loop")
         row = box.row(align=True)
-        row.operator("object.ksp_animation_new_clip", text="New")
-        row.operator("object.ksp_animation_push_action_to_nla", text="Push NLA")
+        row.operator("object.ksp_animation_new_clip", text="新建")
+        row.operator("object.ksp_animation_push_action_to_nla", text="推送到 NLA")
+        box.operator("object.ksp_animation_enable_muted_at_current_frame",
+                     text="在当前帧加入导入动画")
 
         box = layout.box()
-        box.label(text="Transform / Axis Helper", icon='EMPTY_AXIS')
+        box.label(text="变换点 / 轴向助手", icon='EMPTY_AXIS')
         box.prop(props, "helper_type")
-        op = box.operator("object.ksp_create_transform_helper", text="Create")
+        op = box.operator("object.ksp_create_transform_helper", text="创建")
         op.transform_type = props.helper_type
         box.operator_menu_enum("object.ksp_create_transform_helper",
                                "transform_type", text="Create Common")
 
         box = layout.box()
-        box.label(text="ModuleAnimateGeneric", icon='TEXT')
+        box.label(text="ModuleAnimateGeneric 配置", icon='TEXT')
         box.prop(props, "start_event_gui_name")
         box.prop(props, "end_event_gui_name")
         box.prop(props, "action_gui_name")
         box.operator("object.ksp_generate_module_animate_generic",
-                     text="Generate cfg")
+                     text="生成 cfg")
 
         box = layout.box()
-        box.label(text="Export Validator", icon='CHECKMARK')
-        box.operator("object.ksp_animation_validate_export", text="Validate")
+        box.label(text="导出检查", icon='CHECKMARK')
+        box.operator("object.ksp_animation_validate_export", text="检查")
         box.label(text=props.last_validation)
 
 
@@ -575,6 +618,7 @@ classes_to_register = (
     KSPMUAnimationWorkflowProperties,
     KSPMU_OT_KSPAnimationNewClip,
     KSPMU_OT_KSPAnimationPushActionToNLA,
+    KSPMU_OT_KSPAnimationEnableMutedAtCurrentFrame,
     KSPMU_OT_KSPCreateTransformHelper,
     KSPMU_OT_KSPGenerateModuleAnimateGeneric,
     KSPMU_OT_KSPAnimationValidateExport,

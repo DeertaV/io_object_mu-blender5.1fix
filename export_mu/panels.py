@@ -26,12 +26,12 @@ class WORKSPACE_PT_tools_mu_export(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Tool"
     bl_context = ".objectmode"
-    bl_label = "Export Mu"
+    bl_label = "导出 Mu"
 
     def draw(self, context):
         layout = self.layout
         #col = layout.column(align=True)
-        layout.operator("export_object.ksp_mu_quick", text = "Export Mu Model");
+        layout.operator("export_object.ksp_mu_quick", text = "导出 Mu 模型");
         layout.operator_menu_enum("object.mu_volume", "selection")
-        layout.operator("object.mu_snap_cursor_to_com", text = "Find Mu CoM");
-        layout.operator("object.mu_show_transform", text = "Show MODEL{} Transform");
+        layout.operator("object.mu_snap_cursor_to_com", text = "查找 Mu 质心");
+        layout.operator("object.mu_show_transform", text = "显示 MODEL{} 变换");

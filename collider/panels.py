@@ -26,7 +26,7 @@ class WORKSPACE_PT_tools_mu_collider(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Tool"
     #bl_context = ".objectmode"
-    bl_label = "Add Mu Collider"
+    bl_label = "添加 Mu 碰撞体"
 
     def draw(self, context):
         layout = self.layout
@@ -48,7 +48,7 @@ class OBJECT_PT_MuColliderPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'object'
-    bl_label = 'Mu Collider'
+    bl_label = 'Mu 碰撞体'
 
     @classmethod
     def poll(cls, context):

@@ -38,14 +38,45 @@ def texture_update_mapping(self, context):
     offset = Vector(self.offset)
     image_convertNorm = False
     if self.name in nodes:
-        if self.tex in bpy.data.images:
-            img = bpy.data.images[self.tex]
+        img = bpy.data.images.get(self.get('blender_image_name', self.tex))
+        if img:
             if img.muimageprop.invertY:
                 scale.y *= -1
                 offset.y = 1 - offset.y
             image_convertNorm = img.muimageprop.convertNorm
         nodes[self.name].texture_mapping.translation.xy = offset
         nodes[self.name].texture_mapping.scale.xy = scale
+        mapping = nodes.get(self.name + ' UV Transform')
+        vector = nodes[self.name].inputs.get('Vector')
+        if not mapping and vector and vector.is_linked and vector.links[0].from_node.type == 'MAPPING':
+            mapping = vector.links[0].from_node
+        if mapping:
+            if len(mapping.outputs[0].links) > 1:
+                # Identical transforms share one node by default. Editing one
+                # texture's source transform must not shift the others.
+                original = mapping
+                mapping = nodes.new('ShaderNodeMapping')
+                mapping.name = self.name + ' UV Transform'
+                mapping.vector_type = original.vector_type
+                mapping.location = original.location
+                for name in ('Location', 'Rotation', 'Scale'):
+                    mapping.inputs[name].default_value = original.inputs[name].default_value
+                mat.node_tree.links.new(original.inputs['Vector'].links[0].from_socket, mapping.inputs['Vector'])
+                mat.node_tree.links.new(mapping.outputs['Vector'], vector)
+            mapping.inputs['Scale'].default_value = (*scale, 1)
+            mapping.inputs['Location'].default_value = (*offset, 0)
+        elif vector and (tuple(scale) != (1, 1) or tuple(offset) != (0, 0)):
+            source = vector.links[0].from_socket if vector.is_linked else None
+            if source is None:
+                uv = next((n for n in nodes if n.type == 'UVMAP'), None) or nodes.new('ShaderNodeUVMap')
+                source = uv.outputs['UV']
+            mapping = nodes.new('ShaderNodeMapping')
+            mapping.name = self.name + ' UV Transform'
+            mapping.vector_type = 'POINT'
+            mapping.inputs['Scale'].default_value = (*scale, 1)
+            mapping.inputs['Location'].default_value = (*offset, 0)
+            mat.node_tree.links.new(source, mapping.inputs['Vector'])
+            mat.node_tree.links.new(mapping.outputs['Vector'], vector)
     #if "dxtNormal" in nodes:
     #    dxtNormal = nodes["dxtNormal"]
     #    fac = float(image_convertNorm or not self.rgbNorm)
@@ -56,9 +87,9 @@ def texture_update_tex(self, context):
         return
     mat = context.material
     nodes = mat.node_tree.nodes
-    if self.name in nodes and self.tex in bpy.data.images:
-        nodes[self.name].image = bpy.data.images[self.tex]
-        nodes[self.name].image.colorspace_settings.is_data = self.type
+    image = bpy.data.images.get(self.get('blender_image_name', self.tex))
+    if self.name in nodes and image:
+        nodes[self.name].image = image
 
 class MuTextureProperties(bpy.types.PropertyGroup):
     tex: StringProperty(name="tex", update=texture_update_tex)

@@ -26,6 +26,7 @@ from .properties import method_items
 from .cameraprops import clearflag_items
 
 submodule_names = (
+    "imported_assets",
     "cameraprops",
     "lightprops",
     "properties",

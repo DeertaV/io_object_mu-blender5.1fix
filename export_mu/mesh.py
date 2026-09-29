@@ -41,11 +41,9 @@ Matrix_YZ = Matrix(((1,0,0,0),
 MU_MAX_VERTS = 65534
 
 def build_submeshes(mesh):
-    submeshes = []
-    submesh = []
-    for i in range(len(mesh.loop_triangles)):
-        submesh.append(i)
-    submeshes.append(submesh)
+    submeshes = [[] for _ in range(max(1, len(mesh.materials)))]
+    for i, triangle in enumerate(mesh.loop_triangles):
+        submeshes[min(triangle.material_index, len(submeshes) - 1)].append(i)
     return submeshes
 
 def make_tris(mesh, submeshes, vertex_map):
@@ -59,13 +57,14 @@ def make_tris(mesh, submeshes, vertex_map):
 
 def get_mesh(obj):
     modifiers = collect_modifiers(obj)
+    states = [mod.show_viewport for mod in modifiers]
     for mod in modifiers:
         mod.show_viewport = False
     depsgraph = bpy.context.evaluated_depsgraph_get()
     obj_eval = obj.evaluated_get(depsgraph)
     mesh = bpy.data.meshes.new_from_object(obj_eval)
-    for mod in modifiers:
-        mod.show_viewport = True
+    for mod, enabled in zip(modifiers, states):
+        mod.show_viewport = enabled
     return mesh
 
 def get_vertex_data(mu, mesh, obj):
@@ -92,9 +91,14 @@ def get_vertex_data(mu, mesh, obj):
     else:
         uvs = [None] * len(mesh.loops)
         uv2s = [None] * len(mesh.loops)
-    if full_data and mesh.vertex_colors:
-        #FIXME active colors?
-        colors = list(map(lambda a: Vector(a.color).freeze(), mesh.vertex_colors[0].data))
+    if full_data and mesh.color_attributes:
+        color = mesh.color_attributes.active_color or mesh.color_attributes[0]
+        if color.domain == 'CORNER':
+            colors = [Vector(item.color).freeze() for item in color.data]
+        elif color.domain == 'POINT':
+            colors = [Vector(color.data[loop.vertex_index].color).freeze() for loop in mesh.loops]
+        else:
+            colors = [None] * len(mesh.loops)
     else:
         colors = [None] * len(mesh.loops)
     for i in range(len(mesh.loops)):

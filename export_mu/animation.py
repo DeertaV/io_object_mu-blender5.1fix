@@ -23,7 +23,7 @@ import bpy
 from mathutils import Vector, Quaternion
 
 from ..mu import MuAnimation, MuClip, MuCurve, MuKey
-from ..utils import strip_nnn
+from ..utils import strip_nnn, original_ksp_name
 from ..utils.blender_compat import iter_action_fcurves
 
 from .light import light_types, light_power
@@ -37,7 +37,9 @@ def shader_animations(mat, path):
             continue
         anims = []
         strip = track.strips[0]
-        for curve in strip.action.fcurves:
+        if not strip.action or strip.action.get("ksp_playback_uid") or strip.action.get("ksp_baseline"):
+            continue
+        for curve in iter_action_fcurves(strip.action, strip):
             dp = curve.data_path.split(".")
             if dp[0] == "mumatprop" and dp[1] in ["color", "vector", "float2", "float3"]:
                 anims.append((track, path, mat))
@@ -59,6 +61,8 @@ def object_animations(obj, path):
     if obj.animation_data:
         for track in obj.animation_data.nla_tracks:
             if track.strips:
+                if track.strips[0].action and (track.strips[0].action.get("ksp_playback_uid") or track.strips[0].action.get("ksp_baseline")):
+                    continue
                 animations[track.name] = [(track, path, typ)]
         # if nla_tracks exist, then action will be an nla track that has been
         # opened for tweaking, so export action only if there are no nla tracks
@@ -73,11 +77,24 @@ def extend_animations(animations, anims):
             animations[a] = []
         animations[a].extend(anims[a])
 
+def object_export_path(obj, parent_path):
+    if parent_path and obj.parent and obj.parent.type == 'ARMATURE':
+        if obj.parent_type == 'BONE':
+            bone = obj.parent.data.bones.get(obj.parent_bone)
+            names = []
+            while bone:
+                names.append(bone.name)
+                bone = bone.parent
+            if names:
+                return parent_path + '/' + '/'.join(reversed(names))
+        if obj.type == 'MESH' and any(mod.type == 'ARMATURE' and mod.object == obj.parent for mod in obj.modifiers):
+            return parent_path  # Skinned renderer is emitted on the armature node.
+    return parent_path + '/' + original_ksp_name(obj) if parent_path else original_ksp_name(obj)
+
+
 def collect_animations(obj, path=""):
     animations = {}
-    if path:
-        path += "/"
-    path += strip_nnn(obj.name)
+    path = object_export_path(obj, path)
     extend_animations(animations, object_animations (obj, path))
     if type(obj.data) == bpy.types.Mesh:
         for mat in obj.data.materials:
@@ -87,6 +104,27 @@ def collect_animations(obj, path=""):
         extend_animations(animations, object_animations (obj.data, path))
     for o in obj.children:
         extend_animations(animations, collect_animations(o, path))
+    # Detached game resources are exported without binding them to the scene.
+    if hasattr(obj, "ksp_assets") and obj.ksp_assets.clips:
+        from ..utils.import_assets import binding_target
+        targets = {}
+        def register(node, node_path):
+            targets[node] = (node_path, 'arm' if node.type == 'ARMATURE' else 'obj')
+            if node.type == 'LIGHT':
+                targets[node.data] = (node_path, 'lit')
+            if node.type == 'MESH':
+                for mat in node.data.materials:
+                    if mat:
+                        targets.setdefault(mat, (node_path, mat))
+            for child in node.children:
+                register(child, object_export_path(child, node_path))
+        register(obj, path)
+        for clip in obj.ksp_assets.clips:
+            for binding in clip.bindings:
+                target = binding_target(binding)
+                if target in targets and binding.action:
+                    target_path, typ = targets[target]
+                    animations.setdefault(clip.name, []).append((binding.action, target_path, typ))
     return animations
 
 def find_path_root(animations):
@@ -115,25 +153,29 @@ def find_path_root(animations):
         p = p[o]
     return path_root
 
-def make_key(key, mult):
-    fps = bpy.context.scene.render.fps
+def make_key(key, mult, fps=None, origin=None):
+    fps = fps or bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
+    origin = bpy.context.scene.frame_start if origin is None else origin
     mukey = MuKey()
     x, y = key.co
-    mukey.time = (x - bpy.context.scene.frame_start) / fps
+    mukey.time = (x - origin) / fps
     mukey.value = y * mult
     dx, dy = key.handle_left
     dx = (x - dx) / fps
     dy = (y - dy) * mult
-    t1 = dy / dx
+    t1 = dy / dx if abs(dx) > 1e-12 else 0
     dx, dy = key.handle_right
     dx = (dx - x) / fps
     dy = (dy - y) * mult
-    t2 = dy / dx
+    t2 = dy / dx if abs(dx) > 1e-12 else 0
+    if key.interpolation == 'CONSTANT':
+        t2 = float('inf')
     mukey.tangent = [t1, t2]
     mukey.tangentMode = 0
     return mukey
 
 property_map = {
+    "hide_render": (("m_Enabled", -1, 0),),
     "location":(
         ("m_LocalPosition.x", 1, 0),
         ("m_LocalPosition.z", 1, 0),
@@ -171,7 +213,7 @@ vector_map={
     "vector": (".x", ".y", ".z", ".w"),
 }
 
-def make_curve(mu, muobj, curve, path, typ):
+def make_curve(mu, muobj, curve, path, typ, fps=None, origin=None):
     mucurve = MuCurve()
     mucurve.path = path
     if typ in {"obj", "lit"}:
@@ -215,7 +257,12 @@ def make_curve(mu, muobj, curve, path, typ):
     mucurve.wrapMode = (8, 8)
     mucurve.keys = []
     for key in curve.keyframe_points:
-        mucurve.keys.append(make_key(key, mult))
+        mukey = make_key(key, mult, fps, origin)
+        if curve.data_path == 'hide_render':
+            mukey.value += 1
+        if mucurve.keys and mucurve.keys[-1].tangent[1] == float('inf'):
+            mukey.tangent[0] = float('inf')
+        mucurve.keys.append(mukey)
     return mucurve
 
 def transform_curves(muarm):
@@ -325,7 +372,14 @@ def make_animations(mu, animations, anim_root):
                 action = strip.action
                 slot_source = strip
             for curve in iter_action_fcurves(action, slot_source):
-                clip.curves.append(make_curve(mu, muobj, curve, path, typ))
+                if curve.data_path == 'hide_viewport':
+                    continue  # hide_render represents the same Unity m_Enabled channel.
+                try:
+                    fps = action.get("ksp_source_fps")
+                    origin = 1 if fps else None
+                    clip.curves.append(make_curve(mu, muobj, curve, path, typ, fps, origin))
+                except (KeyError, IndexError) as exc:
+                    mu.messages.append(({'WARNING'}, f"Animation channel not exported: {path}: {curve.data_path}: {exc}"))
             if hasattr(muobj, "animated_bones"):
                 transform_curves(muobj)
         anim.clips.append(clip)

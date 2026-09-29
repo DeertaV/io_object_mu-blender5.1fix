@@ -35,7 +35,7 @@ from .module import ksp_module_items, build_modules, available_modules_map
 from .properties import module_active_field
 
 class KSPMU_OT_ModuleExpand(bpy.types.Operator):
-    bl_label = "KSP module expand"
+    bl_label = "展开/折叠 KSP 模块"
     bl_idname = "object.kspmodule_expand"
     index: IntProperty()
     def execute(self, context):
@@ -46,7 +46,7 @@ class KSPMU_OT_ModuleExpand(bpy.types.Operator):
 class KSPMU_OT_ScanModuleDefs(bpy.types.Operator):
     '''Rescan loaded module definitions: *.mod in blender text blocks'''
     bl_idname = "scene.scan_module_defs"
-    bl_label = "RELOAD"
+    bl_label = "重新扫描"
 
     def execute(self, context):
         build_modules()
@@ -59,8 +59,8 @@ class KSPMU_OT_AddModule(bpy.types.Operator):
     they were found. No checking is done for duplicates: they will be
     written to the config file as-is."""
     bl_idname = "object.add_ksp_module"
-    bl_label = "Add KSP Module"
-    type: EnumProperty(name="Module Type", items=ksp_module_items)
+    bl_label = "添加 KSP 模块"
+    type: EnumProperty(name="模块类型", items=ksp_module_items)
 
     def execute(self, context):
         kspmodules = context.active_object.kspmodules
@@ -71,7 +71,7 @@ class KSPMU_OT_AddModule(bpy.types.Operator):
 
 class KSPMU_OT_RemoveModule(bpy.types.Operator):
     """Remove the KSP module from the part."""
-    bl_label = "Remove KSP Module"
+    bl_label = "移除 KSP 模块"
     bl_idname = "object.remove_ksp_module"
     index: IntProperty()
     def execute(self, context):

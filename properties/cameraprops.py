@@ -40,7 +40,7 @@ class OBJECT_PT_MuCameraPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'data'
-    bl_label = 'Mu Properties'
+    bl_label = 'Mu 相机属性'
 
     @classmethod
     def poll(cls, context):

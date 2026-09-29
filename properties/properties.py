@@ -25,9 +25,9 @@ from bpy.props import PointerProperty
 from bpy.props import FloatVectorProperty, IntProperty
 
 class MuSpringProp(bpy.types.PropertyGroup):
-    spring: FloatProperty(name = "Spring")
-    damper: FloatProperty(name = "Damper")
-    targetPosition: FloatProperty(name = "Target")
+    spring: FloatProperty(name = "弹簧")
+    damper: FloatProperty(name = "阻尼")
+    targetPosition: FloatProperty(name = "目标")
 
     def draw(self, context, layout):
         row = layout.row()
@@ -37,19 +37,19 @@ class MuSpringProp(bpy.types.PropertyGroup):
         col.prop(self, "targetPosition")
 
 class MuFrictionProp(bpy.types.PropertyGroup):
-    extremumSlip: FloatProperty(name = "Slip")
-    extremumValue: FloatProperty(name = "Value")
-    asymptoteSlip: FloatProperty(name = "Slip")
-    asymptoteValue: FloatProperty(name = "Value")
-    stiffness: FloatProperty(name = "Stiffness")
+    extremumSlip: FloatProperty(name = "滑移")
+    extremumValue: FloatProperty(name = "数值")
+    asymptoteSlip: FloatProperty(name = "滑移")
+    asymptoteValue: FloatProperty(name = "数值")
+    stiffness: FloatProperty(name = "刚度")
 
     def draw(self, context, layout):
         row = layout.row()
         col = row.column()
-        col.label(text="Extremum")
+        col.label(text="极值")
         col.prop(self, "extremumSlip")
         col.prop(self, "extremumValue")
-        col.label(text="Asymptote")
+        col.label(text="渐近")
         col.prop(self, "asymptoteSlip")
         col.prop(self, "asymptoteValue")
         col.separator()
@@ -71,30 +71,30 @@ dir_items = (
 )
 
 modelType_items = (
-    ('NONE', "None", "Nothing is assumed about the object and its descendants unless specified otherwise by an ancestral object."),
-    ('PART', "Part", "The object and its descendants form a KSP part model. Only the first \"Internal Space\" descendant object is special."),
-    ('PROP', "Prop", "The object and its descendants form a KSP prop model. No descendant objects are special."),
-    ('INTERNAL', "Internal Space", "The object and its descendants form a KSP internal space model. Only \"Prop\" descendant objects are special."),
-    ('STATIC', "KK Static", "The object and its descendants form a Kerbal Konstructs static model. No descendant objects are special."),
-    ('MODEL', "Model", "The object and its descendants form a KSP sub-model. No descendant objects are special."),
-    ('VOLUME', "Volume", "The object and its descendants are used for volume calcuations and are NOT exported. Use Tag to specify the volume group (may be any name, not limited to valid KSP tags) which can then be accessed in cfg template expressions."),
-    ('UTILITY', "Utility", "The object and its decendants will not be exported. Useful for bake meshes, boolean cutters, etc. Note that this affects only top-level objects when using the mass-export script: Utility objects can still be exported manually and as part of a larger model."),
+    ('NONE', "无", "不指定模型类型。"),
+    ('PART', "部件", "对象及其子对象组成 KSP 部件模型。"),
+    ('PROP', "舱内道具", "对象及其子对象组成 KSP Prop 模型。"),
+    ('INTERNAL', "舱内空间", "对象及其子对象组成 KSP Internal Space 模型。"),
+    ('STATIC', "KK 静态物", "Kerbal Konstructs 静态模型。"),
+    ('MODEL', "子模型", "KSP MODEL{} 子模型。"),
+    ('VOLUME', "体积", "用于体积计算，不会导出。"),
+    ('UTILITY', "辅助", "辅助对象，不参与导出。"),
 )
 collider_items = (
     ('MU_COL_NONE', "", ""),
-    ('MU_COL_MESH', "Mesh", ""),
-    ('MU_COL_SPHERE', "Sphere", ""),
-    ('MU_COL_CAPSULE', "Capsule", ""),
-    ('MU_COL_BOX', "Box", ""),
-    ('MU_COL_WHEEL', "Wheel", ""),
+    ('MU_COL_MESH', "网格", ""),
+    ('MU_COL_SPHERE', "球体", ""),
+    ('MU_COL_CAPSULE', "胶囊", ""),
+    ('MU_COL_BOX', "盒子", ""),
+    ('MU_COL_WHEEL', "轮子", ""),
 )
 method_items = (
-    ('FIXED_JOINT', "Fixed Joint", ""),
-    ('HINGE_JOINT', "Hinge Joint", ""),
-    ('LOCKED_JOINT', "Locked Joint", ""),
-    ('MERGED_PHYSICS', "Merged Physics", ""),
-    ('NO_PHYSICS', "No Physics", ""),
-    ('NONE', "None", ""),
+    ('FIXED_JOINT', "固定关节", ""),
+    ('HINGE_JOINT', "铰链关节", ""),
+    ('LOCKED_JOINT', "锁定关节", ""),
+    ('MERGED_PHYSICS', "合并物理", ""),
+    ('NO_PHYSICS', "无物理", ""),
+    ('NONE', "无", ""),
 )
 
 def SetPropMask(prop, mask):
@@ -114,53 +114,53 @@ def collider_update(self, context):
     update_collider(obj)
 
 class MuProperties(bpy.types.PropertyGroup):
-    modelType: EnumProperty(items = modelType_items, name = "Model Type")
-    nodeSize: IntProperty(name = "Size", default = 1)
-    nodeMethod: EnumProperty(items = method_items, name = "Method")
-    nodeCrossfeed: BoolProperty(name = "Crossfeed", default = True)
-    nodeRigid: BoolProperty(name = "Rigid", default = False)
+    modelType: EnumProperty(items = modelType_items, name = "模型类型")
+    nodeSize: IntProperty(name = "尺寸", default = 1)
+    nodeMethod: EnumProperty(items = method_items, name = "连接方式")
+    nodeCrossfeed: BoolProperty(name = "允许交叉供给", default = True)
+    nodeRigid: BoolProperty(name = "刚性连接", default = False)
 
-    tag: StringProperty(name = "Tag", default="Untagged")
-    layer: IntProperty(name = "Layer")
+    tag: StringProperty(name = "标签", default="Untagged")
+    layer: IntProperty(name = "层")
 
-    castShadows: BoolProperty(name = "Cast Shadows", default = True)
-    receiveShadows: BoolProperty(name = "Receive Shadows", default = True)
+    castShadows: BoolProperty(name = "投射阴影", default = True)
+    receiveShadows: BoolProperty(name = "接收阴影", default = True)
 
-    collider: EnumProperty(items = collider_items, name = "Collider")
-    isTrigger: BoolProperty(name = "Trigger")
-    isConvex: BoolProperty(name = "Convex", default = True, description = "Specify to Unity that this is a convex mesh collider. NOTE: not checked for accuracy.")
-    separate: BoolProperty(name = "Separate", description = "Force the collider to be on a separate game object when exporting")
-    center: FloatVectorProperty(name = "Center", subtype = 'XYZ', update=collider_update)
-    radius: FloatProperty(name = "Radius", update=collider_update)
-    height: FloatProperty(name = "Height", update=collider_update)
-    direction: EnumProperty(items = dir_items, name = "Direction", update=collider_update)
-    size: FloatVectorProperty(name = "Size", subtype = 'XYZ', update=collider_update)
+    collider: EnumProperty(items = collider_items, name = "碰撞体")
+    isTrigger: BoolProperty(name = "触发器")
+    isConvex: BoolProperty(name = "凸面", default = True, description = "指定为 Unity 凸面网格碰撞体。")
+    separate: BoolProperty(name = "单独对象", description = "导出时强制碰撞体位于单独 GameObject")
+    center: FloatVectorProperty(name = "中心", subtype = 'XYZ', update=collider_update)
+    radius: FloatProperty(name = "半径", update=collider_update)
+    height: FloatProperty(name = "高度", update=collider_update)
+    direction: EnumProperty(items = dir_items, name = "方向", update=collider_update)
+    size: FloatVectorProperty(name = "尺寸", subtype = 'XYZ', update=collider_update)
 
-    mass: FloatProperty(name = "Mass")
-    suspensionDistance: FloatProperty(name = "Distance")
-    suspensionSpring: PointerProperty(type=MuSpringProp, name = "Spring")
-    forwardFriction: PointerProperty(type=MuFrictionProp, name = "Forward")
-    sideFriction: PointerProperty(type=MuFrictionProp, name = "Sideways")
+    mass: FloatProperty(name = "质量")
+    suspensionDistance: FloatProperty(name = "悬挂距离")
+    suspensionSpring: PointerProperty(type=MuSpringProp, name = "弹簧")
+    forwardFriction: PointerProperty(type=MuFrictionProp, name = "前向摩擦")
+    sideFriction: PointerProperty(type=MuFrictionProp, name = "侧向摩擦")
 
 class MuModelProperties(bpy.types.PropertyGroup):
-    name: StringProperty(name = "Name", default="")
-    type: StringProperty(name = "Type", default="")
-    config: StringProperty(name = "Config", default="")
+    name: StringProperty(name = "名称", default="")
+    type: StringProperty(name = "类型", default="")
+    config: StringProperty(name = "配置", default="")
 
 class MuSceneProperties(bpy.types.PropertyGroup):
-    modelType: EnumProperty(items = modelType_items[1:], name = "Model Type",
-        description="Type of exported models when unspecified by root object.")
-    internal: PointerProperty(name="Internal root",
-        description="Root object of the KSP internal model. Used for prop placement.",
+    modelType: EnumProperty(items = modelType_items[1:], name = "模型类型",
+        description="根对象未指定时使用的导出模型类型。")
+    internal: PointerProperty(name="舱内根对象",
+        description="KSP internal 模型根对象，用于 prop 放置。",
         type = bpy.types.Object)
-    modelPath: StringProperty(name = "Model Path", default = "",
-        description = "Default path for models in MODEL{} nodes")
+    modelPath: StringProperty(name = "模型路径", default = "",
+        description = "MODEL{} 节点中的默认模型路径")
 
 class OBJECT_PT_MuScenePropertyPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'scene'
-    bl_label = "Mu Scene"
+    bl_label = "Mu 场景"
 
     def draw(self, context):
         layout = self.layout
@@ -176,7 +176,7 @@ class VIEW3D_PT_MuScenePanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "View"
-    bl_label = "Mu Scene"
+    bl_label = "Mu 场景"
 
     def draw(self, context):
         layout = self.layout
@@ -192,7 +192,7 @@ class OBJECT_PT_MuAttachNodePanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'data'
-    bl_label = 'Attach Node'
+    bl_label = '连接节点'
 
     @classmethod
     def poll(cls, context):
@@ -213,7 +213,7 @@ class OBJECT_PT_MuPropertiesPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'object'
-    bl_label = 'Mu Properties'
+    bl_label = 'Mu 属性'
 
     @classmethod
     def poll(cls, context):

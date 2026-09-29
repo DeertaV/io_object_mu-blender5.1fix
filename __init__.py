@@ -25,8 +25,8 @@ bl_info = {
     "blender": (5, 1, 0),
     "location": "File > Import-Export",
     "description": "Import-Export KSP Mu format files. (.mu)",
-    "version": (0, 9, 4),
-    "warning": "Blender 5.1 KSP animation workflow MVP",
+    "version": (0, 11, 5),
+    "warning": "Unity runtime components are metadata only; see KSP import reports",
     "wiki_url": "",
     "tracker_url": "",
 #    "support": 'OFFICIAL',
@@ -54,6 +54,7 @@ import importlib
 import sys
 
 registered_submodules = []
+registered_properties = []
 
 # When the addon is reloaded, this module gets reloaded, however none
 # of the other modules from this addon get reloaded. As a result, they
@@ -76,7 +77,7 @@ def register_submodules(name, submodule_names):
 
         # Look through the modules present when register was called. If this
         # module was already loaded, then reload it.
-        if mod.__name__ in preloaded_modules:
+        if preloaded_modules and mod.__name__ in preloaded_modules:
             mod = importlib.reload(mod)
 
             # Prevent the module from getting reloaded more than once
@@ -94,6 +95,7 @@ def register_submodules(name, submodule_names):
         if hasattr(mod, "custom_properties_to_register"):
             for prop in mod.custom_properties_to_register:
                 setattr(prop[0], prop[1], PointerProperty(type=prop[2]))
+                registered_properties.append((prop[0], prop[1]))
         if m[0] or m[1]:
             registered_submodules.append(m)
 
@@ -104,11 +106,16 @@ def register():
     preloaded_modules = None
 
 def unregister():
+    for owner, name in reversed(registered_properties):
+        if hasattr(owner, name):
+            delattr(owner, name)
+    registered_properties.clear()
     for mod in reversed(registered_submodules):
         for menu in reversed(mod[1]):
             menu[0].remove(menu[1])
         for cls in reversed(mod[0]):
             unregister_class(cls)
+    registered_submodules.clear()
 
 if __name__ == "__main__":
     register()
